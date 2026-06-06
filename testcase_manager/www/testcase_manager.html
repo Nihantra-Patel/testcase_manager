@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en" class="h-full">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="/assets/frappe/images/frappe-favicon.svg" type="image/svg+xml" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Testcase Manager</title>
+    <script type="module" crossorigin src="/assets/testcase_manager/frontend/assets/index-BE68p4vw.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/testcase_manager/frontend/assets/index-CI5K-XaL.css">
+  </head>
+  <body class="h-full antialiased">
+    <div id="app" class="h-full"></div>
+
+          <script>
+              {% for key in boot %}
+              window["{{ key }}"] = {{ boot[key] | tojson }};
+              {% endfor %}
+          </script>
+          </body>
+
+</html>

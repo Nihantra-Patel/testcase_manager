@@ -1,0 +1,485 @@
+import { a as v } from "./api-Ciz_Wjp2.js";
+import {
+	z as U,
+	w as S,
+	b as d,
+	c,
+	d as m,
+	e as s,
+	g as p,
+	f as n,
+	k as D,
+	s as r,
+	F as H,
+	p as J,
+	m as V,
+	a as f,
+	y as j,
+	r as G,
+} from "./index-BE68p4vw.js";
+const K = { class: "flex h-full flex-col overflow-hidden" },
+	W = { class: "border-b border-outline-gray-2 px-6 py-3" },
+	Y = { class: "mb-3 flex items-center justify-between" },
+	q = { class: "flex items-baseline gap-2" },
+	M = { class: "text-sm text-ink-gray-5" },
+	Q = { class: "flex flex-wrap items-end gap-3" },
+	X = { class: "ml-auto" },
+	Z = { class: "flex-1 overflow-y-auto px-6" },
+	ee = { class: "w-full text-sm" },
+	te = ["onClick"],
+	se = { class: "max-w-[280px] truncate py-2 pr-4" },
+	ae = { class: "py-2 pr-4" },
+	le = { class: "py-2 pr-4" },
+	oe = { class: "py-2 pr-4" },
+	ne = { class: "py-2 pr-4" },
+	re = { class: "py-2 pr-4" },
+	ie = { class: "py-2 pr-4 text-ink-gray-5" },
+	pe = { key: 0 },
+	ue = { key: 0, class: "border-t border-outline-gray-2 px-6 py-2 text-center" },
+	x = "tc_history_filters_v1",
+	fe = {
+		__name: "HistoryView",
+		setup(de) {
+			const t = G({ app: "", status: "", type: "", search: "" }),
+				i = f(20),
+				h = f([]),
+				C = [20, 50, 100, 500, 2500].map((e) => ({ label: String(e), value: e })),
+				F = [
+					{ label: "All Status", value: "" },
+					{ label: "Passed", value: "Passed" },
+					{ label: "Failed", value: "Failed" },
+					{ label: "Error", value: "Error" },
+					{ label: "Stopped", value: "Stopped" },
+					{ label: "Running", value: "Running" },
+					{ label: "Pending", value: "Pending" },
+				],
+				T = [
+					{ label: "All Types", value: "" },
+					{ label: "DocType", value: "DocType" },
+					{ label: "Report", value: "Report" },
+				],
+				R = j(() => [
+					{ label: "All Apps", value: "" },
+					...h.value.map((e) => ({ label: e, value: e })),
+				]),
+				u = f(null);
+			function _() {
+				const e = {};
+				return (
+					t.app && (e.app = t.app),
+					t.status && (e.status = t.status),
+					t.search.trim() && (e.test_method = ["like", `%${t.search.trim()}%`]),
+					t.type && (e.test_case = ["in", u.value && u.value.length ? u.value : [""]]),
+					e
+				);
+			}
+			function A() {
+				const e = {};
+				return (
+					t.app && (e.app = t.app),
+					t.status && (e.status = t.status),
+					t.search.trim() && (e.test_method = ["like", `%${t.search.trim()}%`]),
+					t.type && (e["test_case.reference_type"] = t.type),
+					e
+				);
+			}
+			const o = U({
+					doctype: "Testcase Run",
+					fields: [
+						"name",
+						"test_method",
+						"app",
+						"run_scope",
+						"status",
+						"duration",
+						"creation",
+						"test_case.reference_type",
+					],
+					filters: _(),
+					orderBy: "creation desc",
+					pageLength: i.value,
+					auto: !0,
+				}),
+				k = f(0);
+			async function B() {
+				const e = await v.getRunCount(A());
+				k.value = (e == null ? void 0 : e.count) ?? 0;
+			}
+			async function g() {
+				t.type
+					? (u.value = (await v.getTestCaseNamesByType(t.type)) || [])
+					: (u.value = null),
+					(o.filters = _()),
+					(o.pageLength = i.value),
+					o.reload(),
+					B();
+			}
+			S(
+				() => [t.app, t.status, t.type, i.value],
+				() => {
+					z(), g();
+				}
+			);
+			let w;
+			S(
+				() => t.search,
+				() => {
+					clearTimeout(w), (w = setTimeout(g, 300));
+				}
+			);
+			function z() {
+				try {
+					localStorage.setItem(x, JSON.stringify({ ...t, pageSize: i.value }));
+				} catch {}
+			}
+			function N() {
+				try {
+					const e = JSON.parse(localStorage.getItem(x) || "{}");
+					e.app && (t.app = e.app),
+						e.status && (t.status = e.status),
+						e.type && (t.type = e.type),
+						e.pageSize && (i.value = e.pageSize);
+				} catch {}
+				t.search = "";
+			}
+			function P() {
+				(t.app = ""), (t.status = ""), (t.type = ""), (t.search = "");
+				try {
+					localStorage.removeItem(x);
+				} catch {}
+			}
+			function O(e) {
+				return e === "Passed"
+					? "green"
+					: e === "Failed" || e === "Error"
+					? "red"
+					: e === "Running" || e === "Pending"
+					? "orange"
+					: "gray";
+			}
+			async function $() {
+				h.value = (await v.getInstalledApps()) || [];
+			}
+			return (
+				N(),
+				$(),
+				g(),
+				(e, a) => {
+					const E = d("FeatherIcon"),
+						b = d("Button"),
+						y = d("Select"),
+						I = d("FormControl"),
+						L = d("Badge");
+					return (
+						c(),
+						m("div", K, [
+							s("div", W, [
+								s("div", Y, [
+									s("div", q, [
+										a[7] ||
+											(a[7] = s(
+												"span",
+												{ class: "text-base font-semibold" },
+												"Run History",
+												-1
+											)),
+										s("span", M, p(k.value) + " total", 1),
+									]),
+									n(
+										b,
+										{
+											variant: "subtle",
+											loading: r(o).loading,
+											label: "Refresh",
+											onClick: a[0] || (a[0] = (l) => r(o).reload()),
+										},
+										{
+											prefix: D(() => [
+												n(E, { name: "refresh-cw", class: "h-3.5 w-3.5" }),
+											]),
+											_: 1,
+										},
+										8,
+										["loading"]
+									),
+								]),
+								s("div", Q, [
+									s("div", null, [
+										a[8] ||
+											(a[8] = s(
+												"div",
+												{
+													class: "mb-1 text-xs font-semibold uppercase tracking-wide text-ink-gray-5",
+												},
+												"App",
+												-1
+											)),
+										n(
+											y,
+											{
+												modelValue: t.app,
+												"onUpdate:modelValue":
+													a[1] || (a[1] = (l) => (t.app = l)),
+												options: R.value,
+												class: "min-w-[150px]",
+											},
+											null,
+											8,
+											["modelValue", "options"]
+										),
+									]),
+									s("div", null, [
+										a[9] ||
+											(a[9] = s(
+												"div",
+												{
+													class: "mb-1 text-xs font-semibold uppercase tracking-wide text-ink-gray-5",
+												},
+												" Status ",
+												-1
+											)),
+										n(
+											y,
+											{
+												modelValue: t.status,
+												"onUpdate:modelValue":
+													a[2] || (a[2] = (l) => (t.status = l)),
+												options: F,
+												class: "min-w-[130px]",
+											},
+											null,
+											8,
+											["modelValue"]
+										),
+									]),
+									s("div", null, [
+										a[10] ||
+											(a[10] = s(
+												"div",
+												{
+													class: "mb-1 text-xs font-semibold uppercase tracking-wide text-ink-gray-5",
+												},
+												"Type",
+												-1
+											)),
+										n(
+											y,
+											{
+												modelValue: t.type,
+												"onUpdate:modelValue":
+													a[3] || (a[3] = (l) => (t.type = l)),
+												options: T,
+												class: "min-w-[130px]",
+											},
+											null,
+											8,
+											["modelValue"]
+										),
+									]),
+									s("div", null, [
+										a[11] ||
+											(a[11] = s(
+												"div",
+												{
+													class: "mb-1 text-xs font-semibold uppercase tracking-wide text-ink-gray-5",
+												},
+												" Search ",
+												-1
+											)),
+										n(
+											I,
+											{
+												modelValue: t.search,
+												"onUpdate:modelValue":
+													a[4] || (a[4] = (l) => (t.search = l)),
+												type: "text",
+												placeholder: "Test title…",
+												class: "min-w-[200px]",
+											},
+											null,
+											8,
+											["modelValue"]
+										),
+									]),
+									s("div", X, [
+										a[12] ||
+											(a[12] = s(
+												"div",
+												{
+													class: "mb-1 text-xs font-semibold uppercase tracking-wide text-ink-gray-5",
+												},
+												" Page size ",
+												-1
+											)),
+										n(
+											y,
+											{
+												modelValue: i.value,
+												"onUpdate:modelValue":
+													a[5] || (a[5] = (l) => (i.value = l)),
+												options: r(C),
+												class: "min-w-[90px]",
+											},
+											null,
+											8,
+											["modelValue", "options"]
+										),
+									]),
+									n(b, {
+										variant: "subtle",
+										label: "Reset Filters",
+										onClick: P,
+									}),
+								]),
+							]),
+							s("div", Z, [
+								s("table", ee, [
+									a[14] ||
+										(a[14] = s(
+											"thead",
+											{
+												class: "sticky top-0 z-10 bg-surface-white text-left text-xs uppercase text-ink-gray-5",
+											},
+											[
+												s(
+													"tr",
+													{ class: "border-b border-outline-gray-2" },
+													[
+														s(
+															"th",
+															{ class: "py-2 pr-4 font-semibold" },
+															"Test"
+														),
+														s(
+															"th",
+															{ class: "py-2 pr-4 font-semibold" },
+															"App"
+														),
+														s(
+															"th",
+															{ class: "py-2 pr-4 font-semibold" },
+															"Scope"
+														),
+														s(
+															"th",
+															{ class: "py-2 pr-4 font-semibold" },
+															"Type"
+														),
+														s(
+															"th",
+															{ class: "py-2 pr-4 font-semibold" },
+															"Status"
+														),
+														s(
+															"th",
+															{ class: "py-2 pr-4 font-semibold" },
+															"Duration"
+														),
+														s(
+															"th",
+															{ class: "py-2 pr-4 font-semibold" },
+															"When"
+														),
+													]
+												),
+											],
+											-1
+										)),
+									s("tbody", null, [
+										(c(!0),
+										m(
+											H,
+											null,
+											J(
+												r(o).data || [],
+												(l) => (
+													c(),
+													m(
+														"tr",
+														{
+															key: l.name,
+															class: "cursor-pointer border-b border-outline-gray-1 hover:bg-surface-gray-2",
+															onClick: (ce) =>
+																e.$router.push(
+																	`/history/${l.name}`
+																),
+														},
+														[
+															s("td", se, p(l.test_method), 1),
+															s("td", ae, p(l.app), 1),
+															s("td", le, p(l.run_scope), 1),
+															s(
+																"td",
+																oe,
+																p(l.reference_type || "—"),
+																1
+															),
+															s("td", ne, [
+																n(
+																	L,
+																	{
+																		theme: O(l.status),
+																		label: l.status,
+																	},
+																	null,
+																	8,
+																	["theme", "label"]
+																),
+															]),
+															s(
+																"td",
+																re,
+																p(
+																	l.duration
+																		? l.duration + "s"
+																		: "—"
+																),
+																1
+															),
+															s("td", ie, p(l.creation), 1),
+														],
+														8,
+														te
+													)
+												)
+											),
+											128
+										)),
+										!r(o).loading && !(r(o).data || []).length
+											? (c(),
+											  m("tr", pe, [
+													...(a[13] ||
+														(a[13] = [
+															s(
+																"td",
+																{
+																	colspan: "7",
+																	class: "p-8 text-center text-ink-gray-5",
+																},
+																"No runs found.",
+																-1
+															),
+														])),
+											  ]))
+											: V("", !0),
+									]),
+								]),
+							]),
+							r(o).hasNextPage
+								? (c(),
+								  m("div", ue, [
+										n(b, {
+											variant: "subtle",
+											label: "Load more",
+											onClick: a[6] || (a[6] = (l) => r(o).next()),
+										}),
+								  ]))
+								: V("", !0),
+						])
+					);
+				}
+			);
+		},
+	};
+export { fe as default };
+//# sourceMappingURL=HistoryView-B-VVLi0q.js.map
