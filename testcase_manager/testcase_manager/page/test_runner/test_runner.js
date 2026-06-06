@@ -655,8 +655,10 @@ class TestRunnerPage {
 						),
 						indicator: "green",
 					});
-					// Refresh apps dropdown + reload the test list with current filters.
-					this._load_apps();
+					// Reload the test list in place — keep the current filters
+					// exactly as they are (don't rerun the app/restore flow, which
+					// would reset the DocType/Report selection).
+					this._query_server();
 				}
 			},
 		});

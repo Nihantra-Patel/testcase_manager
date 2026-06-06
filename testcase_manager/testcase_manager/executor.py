@@ -265,6 +265,13 @@ def _run_tests_in_process(tc, run_scope: str, stream: "RealtimeLineStream") -> l
 
 	runner = TestRunner(stream=stream, verbosity=2, cfg=config)
 
+	# Long-lived workers cache imported test modules in sys.modules, so edits to
+	# a test file on disk would be ignored (old bytecode keeps running) until the
+	# process restarts. Drop the relevant modules first so discovery re-imports
+	# the current source — a saved change is reflected on the very next run.
+	if scope in ("Method", "File", "DocType", ""):
+		_invalidate_test_module(tc.python_path)
+
 	if scope in ("Method", "File"):
 		discover_module_tests([tc.python_path], runner, tc.app)
 	elif scope == "DocType" and tc.reference_doctype:
@@ -296,6 +303,32 @@ def _run_tests_in_process(tc, run_scope: str, stream: "RealtimeLineStream") -> l
 		_cleanup_after_tests()
 
 	return results
+
+
+def _invalidate_test_module(python_path: str) -> None:
+	"""
+	Evict a test module (and the other modules in its doctype/report package)
+	from ``sys.modules`` so the next import reads the current file from disk.
+
+	Example: for ``lending.loan_management.doctype.loan_repayment.test_loan_repayment``
+	we drop everything under ``lending.loan_management.doctype.loan_repayment`` —
+	the test file *and* the controller it imports — so edits to either take
+	effect on the next run without restarting the worker.
+	"""
+	import importlib
+	import sys
+
+	if not python_path:
+		return
+
+	# Package prefix = the test module's parent (the doctype/report folder).
+	pkg = python_path.rsplit(".", 1)[0] if "." in python_path else python_path
+
+	for name in list(sys.modules):
+		if name == python_path or name == pkg or name.startswith(pkg + "."):
+			sys.modules.pop(name, None)
+
+	importlib.invalidate_caches()
 
 
 def _write_errors_to_stream(stream: "RealtimeLineStream", result) -> None:
