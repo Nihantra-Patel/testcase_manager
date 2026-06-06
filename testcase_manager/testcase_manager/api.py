@@ -92,6 +92,88 @@ def run_test_case(test_case: str, run_scope: str = "Method", background: int | s
 	return {"run_name": run.name, "task_id": run.name, "background": use_bg}
 
 
+def _inline_result(run_name: str) -> dict:
+	"""Build the UI result payload from a finished (inline) Testcase Run."""
+	run = frappe.get_doc("Testcase Run", run_name)
+	log_name = frappe.db.get_value("Testcase Log", {"run_reference": run_name}, "name")
+	log = (
+		frappe.db.get_value(
+			"Testcase Log",
+			log_name,
+			["passed_count", "failed_count", "error_count"],
+			as_dict=True,
+		)
+		if log_name
+		else {}
+	)
+	return {
+		"run_name": run_name,
+		"status": run.status,
+		"log_name": log_name,
+		"summary": run.result,
+		"duration": run.duration,
+		"passed": (log or {}).get("passed_count") or 0,
+		"failed": (log or {}).get("failed_count") or 0,
+		"errors": (log or {}).get("error_count") or 0,
+		"full_output": run.full_output,
+		"traceback": run.traceback,
+	}
+
+
+@frappe.whitelist()
+def run_test_batch(test_cases: str | list, background: int | str | bool = 0) -> dict:
+	"""
+	Run several selected tests as ONE batch (single environment setup).
+
+	``test_cases`` is a JSON array (or list) of Testcase names. The whole batch
+	is anchored on one Testcase Run. Runs inline by default; pass background=1
+	for large selections.
+	"""
+	import json
+
+	if isinstance(test_cases, str):
+		test_cases = json.loads(test_cases)
+	if not test_cases:
+		frappe.throw("No test cases provided")
+
+	anchor = frappe.get_doc("Testcase", test_cases[0])
+
+	run = frappe.new_doc("Testcase Run")
+	run.test_case = anchor.name
+	run.app = anchor.app
+	run.test_method = f"{len(test_cases)} tests (batch)"
+	run.python_path = anchor.python_path
+	run.site = frappe.local.site
+	run.triggered_by = frappe.session.user
+	run.status = "Pending"
+	run.run_scope = "Batch"
+	run.insert(ignore_permissions=True)
+	frappe.db.commit()
+
+	use_bg = str(background) not in ("0", "", "false", "False", "None")
+
+	if use_bg:
+		frappe.enqueue(
+			"testcase_manager.testcase_manager.executor.execute_test_batch_job",
+			queue="long",
+			timeout=3600,
+			job_id=f"tc_batch_{run.name}",
+			run_name=run.name,
+			test_cases=test_cases,
+		)
+		return {"run_name": run.name, "task_id": run.name, "background": True}
+
+	from testcase_manager.testcase_manager.executor import execute_test_batch_job
+
+	execute_test_batch_job(run.name, test_cases)
+	return {
+		"run_name": run.name,
+		"task_id": run.name,
+		"background": False,
+		"result": _inline_result(run.name),
+	}
+
+
 @frappe.whitelist()
 def stop_run(run_name: str) -> dict:
 	"""

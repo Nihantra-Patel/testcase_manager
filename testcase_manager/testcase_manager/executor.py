@@ -231,6 +231,124 @@ def execute_test_case_job(run_name: str) -> None:
 		)
 
 
+def execute_test_batch_job(run_name: str, test_cases: list[str]) -> None:
+	"""
+	Run a batch of selected tests under ONE environment setup.
+
+	A single Testcase Run (``run_name``) anchors the batch; the run's
+	full_output/counts reflect all *test_cases*. This avoids paying the multi-
+	second per-test setup cost N times for a multi-test selection.
+	"""
+	task_id = run_name
+
+	frappe.db.set_value(
+		"Testcase Run",
+		run_name,
+		{"status": "Running", "start_time": now_datetime()},
+		update_modified=False,
+	)
+	frappe.db.commit()
+	_publish(task_id, "test_started", {"run_name": run_name, "status": "Running"})
+
+	start_ts = time.monotonic()
+	stream = RealtimeLineStream(task_id, run_name)
+
+	try:
+		tcs = [frappe.get_doc("Testcase", name) for name in test_cases]
+		all_results = _run_batch_in_process(tcs, stream)
+
+		stream.flush()
+		duration = round(time.monotonic() - start_ts, 3)
+		full_output = stream.getvalue()
+
+		total_passed = sum(r.testsRun - len(r.failures) - len(r.errors) for r in all_results)
+		total_failed = sum(len(r.failures) for r in all_results)
+		total_errors = sum(len(r.errors) for r in all_results)
+
+		if total_failed or total_errors:
+			status = "Failed"
+		elif all_results:
+			status = "Passed"
+		else:
+			status = "Error"
+
+		result_summary = f"Passed: {total_passed}, Failed: {total_failed}, Errors: {total_errors}"
+		traceback_text = _strip_ansi(
+			"\n\n".join("\n".join(tb for _, tb in (r.failures + r.errors)) for r in all_results).strip()
+		)
+
+		frappe.db.set_value(
+			"Testcase Run",
+			run_name,
+			{
+				"status": status,
+				"end_time": now_datetime(),
+				"duration": duration,
+				"result": result_summary,
+				"full_output": full_output,
+				"traceback": traceback_text,
+			},
+			update_modified=False,
+		)
+
+		log = frappe.new_doc("Testcase Log")
+		log.run_reference = run_name
+		log.test_case = tcs[0].name if tcs else None
+		log.app = tcs[0].app if tcs else None
+		log.full_output = full_output
+		log.traceback = traceback_text
+		log.passed_count = total_passed
+		log.failed_count = total_failed
+		log.error_count = total_errors
+		log.duration = duration
+		log.execution_status = status
+		log.insert(ignore_permissions=True)
+		frappe.db.commit()
+
+		_publish(
+			task_id,
+			"test_completed",
+			{
+				"run_name": run_name,
+				"status": status,
+				"log_name": log.name,
+				"summary": result_summary,
+				"duration": duration,
+				"passed": total_passed,
+				"failed": total_failed,
+				"errors": total_errors,
+				"full_output": full_output,
+				"traceback": traceback_text,
+			},
+		)
+
+	except Exception as exc:
+		import traceback as _tb
+
+		err_text = _tb.format_exc()
+		frappe.log_error(f"Batch test execution failed for run {run_name}: {exc}")
+		stream.flush()
+		full_output = stream.getvalue() + "\n\nFATAL ERROR:\n" + err_text
+		frappe.db.set_value(
+			"Testcase Run",
+			run_name,
+			{
+				"status": "Error",
+				"end_time": now_datetime(),
+				"result": str(exc),
+				"full_output": full_output,
+				"traceback": err_text,
+			},
+			update_modified=False,
+		)
+		frappe.db.commit()
+		_publish(
+			task_id,
+			"test_completed",
+			{"run_name": run_name, "status": "Error", "error": str(exc), "full_output": full_output},
+		)
+
+
 # ---------------------------------------------------------------------------
 # In-process test runner
 # ---------------------------------------------------------------------------
@@ -280,6 +398,44 @@ def _run_tests_in_process(tc, run_scope: str, stream: "RealtimeLineStream") -> l
 		discover_all_tests([tc.app], runner)
 	else:
 		discover_module_tests([tc.python_path], runner, tc.app)
+
+	return _drive_runner(runner, stream)
+
+
+def _run_batch_in_process(tcs: list, stream: "RealtimeLineStream") -> list:
+	"""
+	Run many test methods in a SINGLE runner so the expensive environment setup
+	(`_initialize_test_environment`, `before_tests` hooks, global dependency
+	records) happens once for the whole batch instead of once per test.
+
+	*tcs* is a list of Testcase docs. All their methods are collected into one
+	TestConfig; their modules are discovered into one runner.
+	"""
+	from frappe.testing import TestConfig, TestRunner, discover_module_tests
+	from frappe.testing.environment import _initialize_test_environment
+
+	site = frappe.local.site
+	methods = tuple(dict.fromkeys(tc.test_method for tc in tcs))  # de-dup, keep order
+	python_paths = list(dict.fromkeys(tc.python_path for tc in tcs))
+	app = tcs[0].app
+
+	config = TestConfig(tests=methods)
+	_initialize_test_environment(site, config)
+
+	runner = TestRunner(stream=stream, verbosity=2, cfg=config)
+
+	# Pick up on-disk edits (see _invalidate_test_module).
+	for p in python_paths:
+		_invalidate_test_module(p)
+
+	discover_module_tests(python_paths, runner, app)
+
+	return _drive_runner(runner, stream)
+
+
+def _drive_runner(runner, stream: "RealtimeLineStream") -> list:
+	"""Run a prepared TestRunner, streaming output. Shared by single + batch."""
+	from frappe.testing.environment import _cleanup_after_tests
 
 	results: list = []
 

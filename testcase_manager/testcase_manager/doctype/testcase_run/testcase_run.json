@@ -44,7 +44,7 @@
    "default": "Method",
    "in_list_view": 1,
    "label": "Run Scope",
-   "options": "Method\nFile\nDocType\nApp"
+   "options": "Method\nFile\nDocType\nApp\nBatch"
   },
   {
    "fieldname": "status",

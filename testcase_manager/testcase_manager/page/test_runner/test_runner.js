@@ -224,7 +224,11 @@ class TestRunnerPage {
 	}
 
 	_get_ref_value() {
-		return this.ref_ctrl ? (this.ref_ctrl.get_value() || "").trim() : "";
+		if (!this.ref_ctrl) return "";
+		// Prefer the visible input (covers values restored via set_input), then
+		// fall back to the control's internal value.
+		const input_val = this.ref_ctrl.$input ? this.ref_ctrl.$input.val() : "";
+		return (input_val || this.ref_ctrl.get_value() || "").trim();
 	}
 
 	// Point the Link control at DocType or Report, and refresh the app's module
@@ -311,10 +315,14 @@ class TestRunnerPage {
 
 		await this._refresh_ref_control();
 		// Restore a previously-selected DocType/Report after the control is scoped.
-		// Suppress the change handler so the restore isn't double-queried/overwritten.
+		// Use set_input (display only) — NOT set_value — so the Link control does
+		// not run server-side validation against its get_query scope, which would
+		// raise "X did not match any results" for the restored value on load.
 		if (this._saved && this._saved.ref) {
 			this._suppress_ref_change = true;
-			await this.ref_ctrl.set_value(this._saved.ref);
+			this.ref_ctrl.set_input(this._saved.ref);
+			this.ref_ctrl.value = this._saved.ref;
+			this.ref_ctrl.last_value = this._saved.ref;
 			this._suppress_ref_change = false;
 		}
 		this._query_server();
@@ -464,11 +472,14 @@ class TestRunnerPage {
 	_run_one(test_case_name, label) {
 		this._start_session("single", label);
 		this._set_status(__("Running"), "#dca03c");
+		this._append_line(`▶ Running test: ${label}`, "#79c0ff");
+		this._append_line("", null);
 		frappe.call({
 			method: "testcase_manager.testcase_manager.api.run_test_case",
 			args: { test_case: test_case_name, run_scope: "Method", background: 0 },
 			callback: (r) => {
 				if (!r.message) {
+					this._append_line("✖ Failed to start the test (API error).", "#ff7b72");
 					this._end_session();
 					return;
 				}
@@ -485,9 +496,10 @@ class TestRunnerPage {
 		});
 	}
 
-	// Paint full_output into the console for an inline (non-realtime) run.
+	// Append full_output to the console for an inline (non-realtime) run.
+	// The intro header is preserved (we don't clear), so the user always sees
+	// the "Running…" context above the captured test output.
 	_render_inline_output(result) {
-		this.$console.empty();
 		(result.full_output || "").split("\n").forEach((l) => this._append_line(l));
 	}
 
@@ -498,7 +510,12 @@ class TestRunnerPage {
 			__("Run the ENTIRE test suite for <b>{0}</b>? This may take a while.", [app]),
 			() => {
 				this._start_session("single", __("Entire app: {0}", [app]));
-				this._append_line(`Running entire app: ${app}`, "#79c0ff");
+				this._append_line(`▶ Running the entire test suite for: ${app}`, "#79c0ff");
+				this._append_line(
+					"This runs in the background and may take several minutes…",
+					"#8b949e"
+				);
+				this._append_line("", null);
 				frappe.call({
 					method: "testcase_manager.testcase_manager.api.run_app_tests",
 					args: { app },
@@ -532,18 +549,41 @@ class TestRunnerPage {
 			return;
 		}
 
-		this._start_session("queue", __("{0} tests", [names.length]));
-		this._run_queue = names.map((n) => {
-			const rec = this.records.find((r) => r.name === n);
-			return { name: n, label: rec?.test_method || n };
+		this._run_batch(names);
+	}
+
+	// Run a multi-test selection as ONE batch → the costly Frappe test
+	// environment setup (before_tests hooks, global records, cache clear) is
+	// paid once for the whole batch instead of once per test. Much faster.
+	_run_batch(names) {
+		this._start_session("single", __("{0} tests (batch)", [names.length]));
+		this._set_status(__("Running"), "#dca03c");
+		this._append_line(
+			`▶ Running ${names.length} tests together (one shared setup)`,
+			"#79c0ff"
+		);
+		this._append_line("Please wait — test environment is being prepared…", "#8b949e");
+		this._append_line("", null);
+		const background = names.length > 20 ? 1 : 0;
+		frappe.call({
+			method: "testcase_manager.testcase_manager.api.run_test_batch",
+			args: { test_cases: JSON.stringify(names), background },
+			callback: (r) => {
+				if (!r.message) {
+					this._append_line("✖ Failed to start the batch (API error).", "#ff7b72");
+					this._end_session();
+					return;
+				}
+				this._set_log_link(__("Open run →"), "Testcase Run", r.message.run_name);
+				if (r.message.result) {
+					this.current_run = r.message.run_name;
+					this._render_inline_output(r.message.result);
+					this._on_run_complete(r.message.result, true);
+				} else {
+					this._subscribe(r.message.run_name);
+				}
+			},
 		});
-		this._queue_total = this._run_queue.length;
-		this._queue_done = 0;
-		this._pending_next = null;
-		// Inline for small selections (no worker latency); background past 20.
-		this._queue_background = this._queue_total > 20;
-		this._append_line(`Running ${this._queue_total} tests sequentially…`, "#79c0ff");
-		this._process_queue();
 	}
 
 	_process_queue() {
