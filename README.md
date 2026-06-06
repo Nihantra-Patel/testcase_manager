@@ -1,40 +1,76 @@
-### TestCase
+# Testcase Manager
 
-TestCase
+UI-based Test Case Management and Test Runner for Frappe.
 
-### Installation
+This app discovers `test_*.py` tests from installed apps, stores them as first-class records, and lets you run tests from Desk with realtime output and execution history.
 
-You can install this app using the [bench](https://github.com/frappe/bench) CLI:
+## Key Features
+
+- Automatic test discovery using AST (no test module imports during discovery).
+- Stores discovered tests in `Testcase` records.
+- Desk page runner (`test-runner`) with filters (app, type, reference, method search).
+- Run scopes:
+	- Method
+	- File
+	- DocType
+	- App
+- Realtime console streaming while tests run in background jobs.
+- Persistent run history in:
+	- `Testcase Run`
+	- `Testcase Log`
+- Stop queued/running jobs (best effort).
+- Scheduled and migrate-time sync of discovered tests.
+
+## Installation
+
+Install using Bench:
 
 ```bash
 cd $PATH_TO_YOUR_BENCH
 bench get-app $URL_OF_THIS_REPO --branch develop
-bench install-app testcase
+bench --site $YOUR_SITE install-app testcase_manager
 ```
 
-### Contributing
+## How It Works
 
-This app uses `pre-commit` for code formatting and linting. Please [install pre-commit](https://pre-commit.com/#installation) and enable it for this repository:
+1. Discovery scans installed app folders for `test_*.py` files.
+2. Test methods are extracted from AST and upserted into `Testcase`.
+3. From the Test Runner page, selected tests are queued as background jobs.
+4. Execution streams output in realtime and writes final results.
+5. Summaries and traceback are persisted on `Testcase Run` and `Testcase Log`.
 
-```bash
-cd apps/testcase
-pre-commit install
-```
+## Auto Sync Hooks
 
-Pre-commit is configured to use the following tools for checking and formatting your code:
+Configured in app hooks:
 
-- ruff
-- eslint
-- prettier
-- pyupgrade
-### CI
+- `after_migrate`: full test sync after every `bench migrate`
+- `scheduler_events.daily`: daily full re-sync
 
-This app can use GitHub Actions for CI. The following workflows are configured:
+## API Endpoints
 
-- CI: Installs this app and runs unit tests on every push to `develop` branch.
-- Linters: Runs [Frappe Semgrep Rules](https://github.com/frappe/semgrep-rules) and [pip-audit](https://pypi.org/project/pip-audit/) on every pull request.
+Whitelisted API methods (browser-callable via `frappe.call`):
 
+- `testcase_manager.testcase_manager.api.sync_test_cases`
+- `testcase_manager.testcase_manager.api.get_test_cases_for_page`
+- `testcase_manager.testcase_manager.api.run_test_case`
+- `testcase_manager.testcase_manager.api.stop_run`
+- `testcase_manager.testcase_manager.api.rerun_test`
+- `testcase_manager.testcase_manager.api.run_app_tests`
+- `testcase_manager.testcase_manager.api.get_installed_apps_list`
+- `testcase_manager.testcase_manager.api.get_reference_options`
+- `testcase_manager.testcase_manager.api.get_app_modules`
 
-### License
+## Development
 
-mit
+Python requirement:
+
+- `>=3.14`
+
+Triggered on:
+
+- push to `develop`
+- pull requests
+
+## License
+
+MIT
