@@ -12,6 +12,7 @@ Verifies:
 """
 
 import frappe
+
 from testcase_manager.tests.utils import TestcaseManagerTestSuite
 
 

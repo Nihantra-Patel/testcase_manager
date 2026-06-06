@@ -43,7 +43,13 @@ frappe.ui.form.on("Testcase Run", {
 // ── Indicator colour ──────────────────────────────────────────────────────
 
 function _update_indicator(frm) {
-	const map = { Pending: "orange", Running: "blue", Passed: "green", Failed: "red", Error: "red" };
+	const map = {
+		Pending: "orange",
+		Running: "blue",
+		Passed: "green",
+		Failed: "red",
+		Error: "red",
+	};
 	frm.set_indicator(__(frm.doc.status), map[frm.doc.status] || "grey");
 }
 

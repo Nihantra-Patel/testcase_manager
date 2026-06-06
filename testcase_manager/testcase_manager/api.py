@@ -7,7 +7,6 @@ All methods are callable from the browser via frappe.call().
 import frappe
 from frappe.utils import now_datetime
 
-
 # ---------------------------------------------------------------------------
 # Test Execution
 # ---------------------------------------------------------------------------

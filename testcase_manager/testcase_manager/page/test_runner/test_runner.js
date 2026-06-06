@@ -29,8 +29,8 @@ class TestRunnerPage {
 
 		this._build_layout();
 		this._setup_realtime();
-		this._restore_filters();   // load saved filter values
-		this._load_apps();         // populates app dropdown + first query
+		this._restore_filters(); // load saved filter values
+		this._load_apps(); // populates app dropdown + first query
 	}
 
 	// ── Layout ────────────────────────────────────────────────────────────
@@ -117,18 +117,22 @@ class TestRunnerPage {
 		`).appendTo($body);
 
 		this.$layout.find(".tc-flabel").css({
-			fontSize: "11px", fontWeight: "700", color: "var(--text-muted)",
-			textTransform: "uppercase", letterSpacing: ".5px", marginBottom: "3px",
+			fontSize: "11px",
+			fontWeight: "700",
+			color: "var(--text-muted)",
+			textTransform: "uppercase",
+			letterSpacing: ".5px",
+			marginBottom: "3px",
 		});
 
-		this.$f_app    = this.$layout.find(".tc-f-app");
-		this.$f_type   = this.$layout.find(".tc-f-type");
+		this.$f_app = this.$layout.find(".tc-f-app");
+		this.$f_type = this.$layout.find(".tc-f-type");
 		this.$f_search = this.$layout.find(".tc-f-search");
 		this.$ref_label = this.$layout.find(".tc-ref-label");
-		this.$list     = this.$layout.find(".tc-list");
-		this.$console  = this.$layout.find(".tc-console");
-		this.$count    = this.$layout.find(".tc-count");
-		this.$summary  = this.$layout.find(".tc-summary");
+		this.$list = this.$layout.find(".tc-list");
+		this.$console = this.$layout.find(".tc-console");
+		this.$count = this.$layout.find(".tc-count");
+		this.$summary = this.$layout.find(".tc-summary");
 		this.$run_label = this.$layout.find(".tc-run-label");
 		this.$status_badge = this.$layout.find(".tc-status-badge");
 		this.$log_link_row = this.$layout.find(".tc-log-link-row");
@@ -151,7 +155,10 @@ class TestRunnerPage {
 			this._update_ref_label();
 			this._refresh_ref_control().then(() => this._query_server());
 		});
-		this.$f_search.on("input", () => { this._save_filters(); this._query_server(); });
+		this.$f_search.on("input", () => {
+			this._save_filters();
+			this._query_server();
+		});
 
 		// Buttons
 		this.$layout.find(".tc-select-all").on("change", (e) => {
@@ -181,7 +188,10 @@ class TestRunnerPage {
 					const modules = self._app_modules || [];
 					return modules.length ? { filters: { module: ["in", modules] } } : {};
 				},
-				change: () => { this._save_filters(); this._query_server(); },
+				change: () => {
+					this._save_filters();
+					this._query_server();
+				},
 			},
 			parent: $container[0],
 			render_input: true,
@@ -199,7 +209,7 @@ class TestRunnerPage {
 	// Point the Link control at DocType or Report, and refresh the app's module
 	// scope so the dropdown only shows that app's doctypes/reports.
 	async _refresh_ref_control() {
-		const app  = this.$f_app.val() || "";
+		const app = this.$f_app.val() || "";
 		const type = this.$f_type.val() || "";
 
 		// Fetch + cache the modules for the selected app (for get_query scoping)
@@ -228,7 +238,11 @@ class TestRunnerPage {
 			ref: this._get_ref_value(),
 			search: this.$f_search.val() || "",
 		};
-		try { localStorage.setItem(TC_FILTER_KEY, JSON.stringify(data)); } catch (e) {}
+		try {
+			localStorage.setItem(TC_FILTER_KEY, JSON.stringify(data));
+		} catch (e) {
+			// storage unavailable, ignore
+		}
 	}
 
 	_restore_filters() {
@@ -243,7 +257,11 @@ class TestRunnerPage {
 	}
 
 	_reset_filters() {
-		try { localStorage.removeItem(TC_FILTER_KEY); } catch (e) {}
+		try {
+			localStorage.removeItem(TC_FILTER_KEY);
+		} catch (e) {
+			// storage unavailable, ignore
+		}
 		this._saved = {};
 		this.$f_app.val("");
 		this.$f_type.val("");
@@ -259,7 +277,9 @@ class TestRunnerPage {
 	// ── Dropdown population ────────────────────────────────────────────────
 
 	async _load_apps() {
-		const r = await frappe.call({ method: "testcase_manager.testcase_manager.api.get_installed_apps_list" });
+		const r = await frappe.call({
+			method: "testcase_manager.testcase_manager.api.get_installed_apps_list",
+		});
 		this.$f_app.empty().append(`<option value="">${__("All Apps")}</option>`);
 		(r.message || []).forEach((a) => this.$f_app.append(`<option value="${a}">${a}</option>`));
 
@@ -274,7 +294,13 @@ class TestRunnerPage {
 
 	_update_ref_label() {
 		const type = this.$f_type.val() || "";
-		this.$ref_label.text(type === "Report" ? __("Report") : type === "DocType" ? __("DocType") : __("DocType / Report"));
+		this.$ref_label.text(
+			type === "Report"
+				? __("Report")
+				: type === "DocType"
+				? __("DocType")
+				: __("DocType / Report")
+		);
 	}
 
 	_toggle_runapp_btn() {
@@ -289,9 +315,9 @@ class TestRunnerPage {
 	}
 
 	async _do_query() {
-		const app  = this.$f_app.val() || "";
+		const app = this.$f_app.val() || "";
 		const type = this.$f_type.val() || "";
-		const ref  = this._get_ref_value();
+		const ref = this._get_ref_value();
 		const search = (this.$f_search.val() || "").trim();
 
 		const args = { app, reference_type: type, search, page_size: 10000 };
@@ -308,9 +334,11 @@ class TestRunnerPage {
 
 		this.records = r.message.records || [];
 		const total = r.message.total || 0;
-		this.$count.text(total > this.records.length
-			? `${this.records.length} of ${total} — refine filters`
-			: `${this.records.length} test(s)`);
+		this.$count.text(
+			total > this.records.length
+				? `${this.records.length} of ${total} — refine filters`
+				: `${this.records.length} test(s)`
+		);
 
 		this._render_list();
 	}
@@ -319,7 +347,11 @@ class TestRunnerPage {
 
 	_render_list() {
 		if (!this.records.length) {
-			this.$list.html(`<div style="padding:32px;text-align:center;color:#888;">${__("No tests found. Adjust filters or Sync.")}</div>`);
+			this.$list.html(
+				`<div style="padding:32px;text-align:center;color:#888;">${__(
+					"No tests found. Adjust filters or Sync."
+				)}</div>`
+			);
 			return;
 		}
 
@@ -330,36 +362,54 @@ class TestRunnerPage {
 		});
 
 		const $frag = $(document.createDocumentFragment());
-		Object.keys(groups).sort((a, b) => a.localeCompare(b)).forEach((label) => {
-			const rows = groups[label].sort((a, b) =>
-				(a.test_method || "").localeCompare(b.test_method || "")
-			);
+		Object.keys(groups)
+			.sort((a, b) => a.localeCompare(b))
+			.forEach((label) => {
+				const rows = groups[label].sort((a, b) =>
+					(a.test_method || "").localeCompare(b.test_method || "")
+				);
 
-			const $g = $(`<div style="display:block;"><div style="display:block;padding:6px 12px;background:var(--subtle-bg);border-top:1px solid var(--border-color);border-bottom:1px solid var(--border-color);font-size:10px;font-weight:800;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;line-height:1.4;">${frappe.utils.escape_html(label)}</div></div>`);
+				const $g = $(
+					`<div style="display:block;"><div style="display:block;padding:6px 12px;background:var(--subtle-bg);border-top:1px solid var(--border-color);border-bottom:1px solid var(--border-color);font-size:10px;font-weight:800;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;line-height:1.4;">${frappe.utils.escape_html(
+						label
+					)}</div></div>`
+				);
 
-			rows.forEach((tc) => {
-				const $row = $(`
-					<div class="tc-row" data-name="${tc.name}" style="display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--border-color);cursor:pointer;">
-						<input type="checkbox" class="tc-row-check" data-name="${tc.name}" style="flex-shrink:0;cursor:pointer;">
+				rows.forEach((tc) => {
+					const $row = $(`
+					<div class="tc-row" data-name="${
+						tc.name
+					}" style="display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--border-color);cursor:pointer;">
+						<input type="checkbox" class="tc-row-check" data-name="${
+							tc.name
+						}" style="flex-shrink:0;cursor:pointer;">
 						<div style="flex:1;min-width:0;">
-							<div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${frappe.utils.escape_html(tc.test_method)}</div>
-							<div style="font-size:11px;color:#888;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${frappe.utils.escape_html(tc.python_path)}</div>
+							<div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${frappe.utils.escape_html(
+								tc.test_method
+							)}</div>
+							<div style="font-size:11px;color:#888;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${frappe.utils.escape_html(
+								tc.python_path
+							)}</div>
 						</div>
 						<button class="btn btn-xs btn-primary tc-run-btn" title="${__("Run this test")}">&#x25B6;</button>
 					</div>
 				`);
-				$row.on("mouseenter", () => $row.css("background", "var(--fg-hover-color)"))
-					.on("mouseleave", () => $row.css("background", ""));
-				$row.find(".tc-run-btn").on("click", (e) => { e.stopPropagation(); this._run_one(tc.name, tc.test_method); });
-				$row.on("click", (e) => {
-					if ($(e.target).is("input,button")) return;
-					const $cb = $row.find(".tc-row-check");
-					$cb.prop("checked", !$cb.prop("checked"));
+					$row.on("mouseenter", () =>
+						$row.css("background", "var(--fg-hover-color)")
+					).on("mouseleave", () => $row.css("background", ""));
+					$row.find(".tc-run-btn").on("click", (e) => {
+						e.stopPropagation();
+						this._run_one(tc.name, tc.test_method);
+					});
+					$row.on("click", (e) => {
+						if ($(e.target).is("input,button")) return;
+						const $cb = $row.find(".tc-row-check");
+						$cb.prop("checked", !$cb.prop("checked"));
+					});
+					$g.append($row);
 				});
-				$g.append($row);
+				$frag.append($g);
 			});
-			$frag.append($g);
-		});
 
 		this.$list.empty().append($frag);
 	}
@@ -389,7 +439,10 @@ class TestRunnerPage {
 			method: "testcase_manager.testcase_manager.api.run_test_case",
 			args: { test_case: test_case_name, run_scope: "Method" },
 			callback: (r) => {
-				if (!r.message) { this._end_session(); return; }
+				if (!r.message) {
+					this._end_session();
+					return;
+				}
 				this._subscribe(r.message.run_name);
 				this._set_status(__("Running"), "#dca03c");
 				this._set_log_link(__("Open run →"), "Testcase Run", r.message.run_name);
@@ -400,25 +453,37 @@ class TestRunnerPage {
 	_run_entire_app() {
 		const app = this.$f_app.val();
 		if (!app) return;
-		frappe.confirm(__("Run the ENTIRE test suite for <b>{0}</b>? This may take a while.", [app]), () => {
-			this._start_session("single", __("Entire app: {0}", [app]));
-			this._append_line(`Running entire app: ${app}`, "#569cd6");
-			frappe.call({
-				method: "testcase_manager.testcase_manager.api.run_app_tests",
-				args: { app },
-				callback: (r) => {
-					if (!r.message) { this._end_session(); return; }
-					this._subscribe(r.message.run_name);
-					this._set_status(__("Running"), "#dca03c");
-					this._set_log_link(__("Open run →"), "Testcase Run", r.message.run_name);
-				},
-			});
-		});
+		frappe.confirm(
+			__("Run the ENTIRE test suite for <b>{0}</b>? This may take a while.", [app]),
+			() => {
+				this._start_session("single", __("Entire app: {0}", [app]));
+				this._append_line(`Running entire app: ${app}`, "#569cd6");
+				frappe.call({
+					method: "testcase_manager.testcase_manager.api.run_app_tests",
+					args: { app },
+					callback: (r) => {
+						if (!r.message) {
+							this._end_session();
+							return;
+						}
+						this._subscribe(r.message.run_name);
+						this._set_status(__("Running"), "#dca03c");
+						this._set_log_link(__("Open run →"), "Testcase Run", r.message.run_name);
+					},
+				});
+			}
+		);
 	}
 
 	_run_selected() {
-		const names = this.$list.find(".tc-row-check:checked").map((_, el) => $(el).data("name")).get();
-		if (!names.length) { frappe.msgprint(__("Select at least one test to run.")); return; }
+		const names = this.$list
+			.find(".tc-row-check:checked")
+			.map((_, el) => $(el).data("name"))
+			.get();
+		if (!names.length) {
+			frappe.msgprint(__("Select at least one test to run."));
+			return;
+		}
 
 		if (names.length === 1) {
 			const rec = this.records.find((r) => r.name === names[0]);
@@ -456,7 +521,11 @@ class TestRunnerPage {
 			method: "testcase_manager.testcase_manager.api.run_test_case",
 			args: { test_case: name, run_scope: "Method" },
 			callback: (r) => {
-				if (!r.message) { this._append_line("  ERROR: API call failed.", "#f48771"); this._process_queue(); return; }
+				if (!r.message) {
+					this._append_line("  ERROR: API call failed.", "#f48771");
+					this._process_queue();
+					return;
+				}
 				this._subscribe(r.message.run_name);
 				this._pending_next = () => this._process_queue();
 			},
@@ -480,7 +549,10 @@ class TestRunnerPage {
 		this.current_run = null;
 		this._append_line("\n■ Stopped by user.", "#f48771");
 		this._set_status(__("Stopped"), "#999");
-		this.$summary.css({ background: "#4a1515", color: "#f48771" }).html("&#x25A0; Stopped by user").show();
+		this.$summary
+			.css({ background: "#4a1515", color: "#f48771" })
+			.html("&#x25A0; Stopped by user")
+			.show();
 		this._end_session();
 	}
 
@@ -494,9 +566,18 @@ class TestRunnerPage {
 			callback: (r) => {
 				const m = r.message || {};
 				if (m.status === "queued") {
-					frappe.show_alert({ message: __("Full sync queued in background"), indicator: "blue" });
+					frappe.show_alert({
+						message: __("Full sync queued in background"),
+						indicator: "blue",
+					});
 				} else {
-					frappe.show_alert({ message: __("Sync complete — created: {0}, updated: {1}, deactivated: {2}", [m.created, m.updated, m.deactivated]), indicator: "green" });
+					frappe.show_alert({
+						message: __(
+							"Sync complete — created: {0}, updated: {1}, deactivated: {2}",
+							[m.created, m.updated, m.deactivated]
+						),
+						indicator: "green",
+					});
 					this._load_apps();
 				}
 			},
@@ -517,7 +598,8 @@ class TestRunnerPage {
 	}
 
 	_subscribe(run_name) {
-		if (this.current_run && this.current_run !== run_name) frappe.realtime.task_unsubscribe(this.current_run);
+		if (this.current_run && this.current_run !== run_name)
+			frappe.realtime.task_unsubscribe(this.current_run);
 		this.current_run = run_name;
 		frappe.realtime.task_subscribe(run_name);
 	}
@@ -527,23 +609,41 @@ class TestRunnerPage {
 	_copy_console() {
 		// Join each rendered line with a newline (\n) — .text() alone drops the
 		// line breaks between the <div> rows and produces one long line.
-		const text = this.$console.children().map((_, el) => $(el).text()).get().join("\n");
-		if (!text.trim()) { frappe.show_alert({ message: __("Console is empty"), indicator: "orange" }); return; }
-		const done = () => frappe.show_alert({ message: __("Console output copied"), indicator: "green" });
+		const text = this.$console
+			.children()
+			.map((_, el) => $(el).text())
+			.get()
+			.join("\n");
+		if (!text.trim()) {
+			frappe.show_alert({ message: __("Console is empty"), indicator: "orange" });
+			return;
+		}
+		const done = () =>
+			frappe.show_alert({ message: __("Console output copied"), indicator: "green" });
 		const fallback = () => {
 			// Fallback for non-secure contexts where navigator.clipboard is unavailable
 			const ta = document.createElement("textarea");
-			ta.value = text; document.body.appendChild(ta); ta.select();
-			try { document.execCommand("copy"); done(); } catch (e) { frappe.msgprint(__("Copy failed — select text manually.")); }
+			ta.value = text;
+			document.body.appendChild(ta);
+			ta.select();
+			try {
+				document.execCommand("copy");
+				done();
+			} catch (e) {
+				frappe.msgprint(__("Copy failed — select text manually."));
+			}
 			document.body.removeChild(ta);
 		};
-		if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(done, fallback);
+		if (navigator.clipboard?.writeText)
+			navigator.clipboard.writeText(text).then(done, fallback);
 		else fallback();
 	}
 
 	_append_line(raw_line, forced_color = null) {
 		const safe = frappe.utils.escape_html(_stripAnsi(raw_line || ""));
-		const html = forced_color ? `<span style="color:${forced_color}">${safe}</span>` : _colourLine(safe);
+		const html = forced_color
+			? `<span style="color:${forced_color}">${safe}</span>`
+			: _colourLine(safe);
 		this.$console.append(`<div>${html}</div>`);
 		this.$console[0].scrollTop = this.$console[0].scrollHeight;
 	}
@@ -562,10 +662,13 @@ class TestRunnerPage {
 	}
 
 	_set_log_link(text, doctype, name) {
-		this.$log_link.text(text).off("click").on("click", (e) => {
-			e.preventDefault();
-			frappe.set_route("Form", doctype, name);
-		});
+		this.$log_link
+			.text(text)
+			.off("click")
+			.on("click", (e) => {
+				e.preventDefault();
+				frappe.set_route("Form", doctype, name);
+			});
 		this.$log_link_row.show();
 	}
 
@@ -592,12 +695,17 @@ class TestRunnerPage {
 		}
 		if (data.duration) this._append_line(`Duration: ${data.duration}s`, "#888");
 
-		const queue_continuing = this._pending_next && this._run_queue.length >= 0 && this._session?.mode === "queue" && this._run_queue.length > 0;
+		const queue_continuing =
+			this._pending_next &&
+			this._run_queue.length >= 0 &&
+			this._session?.mode === "queue" &&
+			this._run_queue.length > 0;
 
 		if (this._session && this._session.mode === "single") {
 			// Single run: final summary uses this run's counts.
 			this._render_summary(this._session, data.status);
-			if (data.log_name) this._set_log_link(__("Open full log →"), "Testcase Log", data.log_name);
+			if (data.log_name)
+				this._set_log_link(__("Open full log →"), "Testcase Log", data.log_name);
 			this._end_session();
 		}
 
@@ -614,7 +722,7 @@ class TestRunnerPage {
 
 	// Render the green/red summary bar from accumulated counts.
 	_render_summary(sess, status_label) {
-		const ok = (sess.failed + sess.errors) === 0;
+		const ok = sess.failed + sess.errors === 0;
 		const fg = ok ? "#4ec9b0" : "#f48771";
 		const bg = ok ? "#1a472a" : "#4a1515";
 		const icon = ok ? "✔" : "✖";
@@ -624,8 +732,10 @@ class TestRunnerPage {
 		this._append_line("", null);
 		this._append_line(`${icon} ${word} — ${summary}`, fg);
 
-		this.$summary.css({ background: bg, color: fg })
-			.html(`${icon} ${word} &mdash; ${frappe.utils.escape_html(summary)}`).show();
+		this.$summary
+			.css({ background: bg, color: fg })
+			.html(`${icon} ${word} &mdash; ${frappe.utils.escape_html(summary)}`)
+			.show();
 		this._set_status(word, fg);
 	}
 }
@@ -638,13 +748,15 @@ function _stripAnsi(str) {
 }
 
 function _colourLine(safe) {
-	if (/✔|PASS\b|^OK\b/.test(safe))                  return `<span style="color:#4ec9b0">${safe}</span>`;
-	if (/✖/.test(safe))                                return `<span style="color:#f48771">${safe}</span>`;
-	if (/^FAIL\b|^ERROR\b|^AssertionError/.test(safe)) return `<span style="color:#f48771">${safe}</span>`;
-	if (/^Traceback/.test(safe))                       return `<span style="color:#ce9178">${safe}</span>`;
-	if (/^\s+File "|^\s+raise /.test(safe))            return `<span style="color:#ce9178">${safe}</span>`;
-	if (/^Running \d|^Ran \d/.test(safe))              return `<span style="color:#569cd6">${safe}</span>`;
-	if (/^={3,}$|^-{3,}$/.test(safe))                  return `<span style="color:#555">${safe}</span>`;
-	if (/^FAILED\b/.test(safe))                        return `<span style="color:#f48771;font-weight:700">${safe}</span>`;
+	if (/✔|PASS\b|^OK\b/.test(safe)) return `<span style="color:#4ec9b0">${safe}</span>`;
+	if (/✖/.test(safe)) return `<span style="color:#f48771">${safe}</span>`;
+	if (/^FAIL\b|^ERROR\b|^AssertionError/.test(safe))
+		return `<span style="color:#f48771">${safe}</span>`;
+	if (/^Traceback/.test(safe)) return `<span style="color:#ce9178">${safe}</span>`;
+	if (/^\s+File "|^\s+raise /.test(safe)) return `<span style="color:#ce9178">${safe}</span>`;
+	if (/^Running \d|^Ran \d/.test(safe)) return `<span style="color:#569cd6">${safe}</span>`;
+	if (/^={3,}$|^-{3,}$/.test(safe)) return `<span style="color:#555">${safe}</span>`;
+	if (/^FAILED\b/.test(safe))
+		return `<span style="color:#f48771;font-weight:700">${safe}</span>`;
 	return `<span style="color:#d4d4d4">${safe}</span>`;
 }

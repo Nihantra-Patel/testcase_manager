@@ -147,9 +147,7 @@ def execute_test_case_job(run_name: str) -> None:
 		result_summary = f"Passed: {total_passed}, Failed: {total_failed}, Errors: {total_errors}"
 
 		traceback_text = _strip_ansi(
-			"\n\n".join(
-				"\n".join(tb for _, tb in (r.failures + r.errors)) for r in all_results
-			).strip()
+			"\n\n".join("\n".join(tb for _, tb in (r.failures + r.errors)) for r in all_results).strip()
 		)
 
 		frappe.db.set_value(

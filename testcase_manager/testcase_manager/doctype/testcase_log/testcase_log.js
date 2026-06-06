@@ -9,20 +9,27 @@ frappe.ui.form.on("Testcase Log", {
 		);
 
 		// ── Re-Run ─────────────────────────────────────────────────────────
-		frm.add_custom_button(__("Re-Run Test"), () => {
-			frappe.call({
-				method: "testcase_manager.testcase_manager.api.rerun_test",
-				args: { run_name: frm.doc.run_reference },
-				freeze: true,
-				freeze_message: __("Queuing test run…"),
-				callback(r) {
-					if (r.message) {
-						frappe.show_alert({ message: __("New run created"), indicator: "blue" });
-						frappe.set_route("Form", "Testcase Run", r.message.run_name);
-					}
-				},
-			});
-		}, __("Actions"));
+		frm.add_custom_button(
+			__("Re-Run Test"),
+			() => {
+				frappe.call({
+					method: "testcase_manager.testcase_manager.api.rerun_test",
+					args: { run_name: frm.doc.run_reference },
+					freeze: true,
+					freeze_message: __("Queuing test run…"),
+					callback(r) {
+						if (r.message) {
+							frappe.show_alert({
+								message: __("New run created"),
+								indicator: "blue",
+							});
+							frappe.set_route("Form", "Testcase Run", r.message.run_name);
+						}
+					},
+				});
+			},
+			__("Actions")
+		);
 
 		if (frm.doc.run_reference) {
 			frm.add_custom_button(__("View Run"), () => {

@@ -13,7 +13,6 @@ from pathlib import Path
 import frappe
 from frappe.utils import now_datetime
 
-
 # ---------------------------------------------------------------------------
 # Public entry points
 # ---------------------------------------------------------------------------
@@ -164,7 +163,7 @@ def _file_to_module_path(file_path: Path, app_path: Path) -> str:
 	  → erpnext.accounts.doctype.sales_invoice.test_sales_invoice
 	"""
 	rel = file_path.relative_to(app_path.parent)  # relative to apps/<app>/
-	parts = list(rel.parent.parts) + [file_path.stem]
+	parts = [*list(rel.parent.parts), file_path.stem]
 	return ".".join(parts)
 
 
@@ -223,9 +222,7 @@ def _sync_records(app: str, discovered: list[dict]) -> dict:
 		filters={"app": app},
 		fields=["name", "python_path", "test_method"],
 	)
-	existing: dict[str, str] = {
-		f"{r.python_path}::{r.test_method}": r.name for r in existing_rows
-	}
+	existing: dict[str, str] = {f"{r.python_path}::{r.test_method}": r.name for r in existing_rows}
 
 	discovered_keys: set[str] = set()
 	now = now_datetime()

@@ -2,23 +2,39 @@ frappe.ui.form.on("Testcase", {
 	refresh(frm) {
 		if (frm.is_new()) return;
 
-		frm.add_custom_button(__("Run Method"), () => {
-			_run(frm, "Method");
-		}, __("Run"));
+		frm.add_custom_button(
+			__("Run Method"),
+			() => {
+				_run(frm, "Method");
+			},
+			__("Run")
+		);
 
-		frm.add_custom_button(__("Run Entire File"), () => {
-			_run(frm, "File");
-		}, __("Run"));
+		frm.add_custom_button(
+			__("Run Entire File"),
+			() => {
+				_run(frm, "File");
+			},
+			__("Run")
+		);
 
 		if (frm.doc.reference_type === "DocType" && frm.doc.reference_doctype) {
-			frm.add_custom_button(__("Run All for DocType"), () => {
-				_run(frm, "DocType");
-			}, __("Run"));
+			frm.add_custom_button(
+				__("Run All for DocType"),
+				() => {
+					_run(frm, "DocType");
+				},
+				__("Run")
+			);
 		}
 
-		frm.add_custom_button(__("Run All for App"), () => {
-			_run(frm, "App");
-		}, __("Run"));
+		frm.add_custom_button(
+			__("Run All for App"),
+			() => {
+				_run(frm, "App");
+			},
+			__("Run")
+		);
 
 		frm.add_custom_button(__("Sync This File"), () => {
 			frappe.call({
