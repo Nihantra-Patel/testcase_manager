@@ -1,0 +1,165 @@
+{
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2024-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "test_method",
+  "app",
+  "execution_status",
+  "column_break_1",
+  "run_reference",
+  "test_case",
+  "section_break_counts",
+  "passed_count",
+  "failed_count",
+  "error_count",
+  "duration",
+  "section_break_output",
+  "full_output",
+  "section_break_traceback",
+  "traceback",
+  "errors"
+ ],
+ "fields": [
+  {
+   "fieldname": "test_method",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Test Method",
+   "read_only": 1,
+   "bold": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "app",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "App",
+   "read_only": 1
+  },
+  {
+   "fieldname": "execution_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Passed\nFailed\nError",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "run_reference",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Run Reference",
+   "options": "Testcase Run",
+   "reqd": 1,
+   "search_index": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "test_case",
+   "fieldtype": "Link",
+   "label": "Testcase",
+   "options": "Testcase",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_counts",
+   "fieldtype": "Section Break",
+   "label": "Summary"
+  },
+  {
+   "fieldname": "passed_count",
+   "fieldtype": "Int",
+   "default": "0",
+   "in_list_view": 1,
+   "label": "Passed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "failed_count",
+   "fieldtype": "Int",
+   "default": "0",
+   "in_list_view": 1,
+   "label": "Failed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "error_count",
+   "fieldtype": "Int",
+   "default": "0",
+   "label": "Errors",
+   "read_only": 1
+  },
+  {
+   "fieldname": "duration",
+   "fieldtype": "Float",
+   "label": "Duration (s)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_output",
+   "fieldtype": "Section Break",
+   "label": "Full Output"
+  },
+  {
+   "fieldname": "full_output",
+   "fieldtype": "Code",
+   "label": "Full Output",
+   "read_only": 1,
+   "options": "Text"
+  },
+  {
+   "fieldname": "section_break_traceback",
+   "fieldtype": "Section Break",
+   "collapsible": 1,
+   "label": "Errors and Tracebacks"
+  },
+  {
+   "fieldname": "traceback",
+   "fieldtype": "Code",
+   "label": "Traceback",
+   "read_only": 1,
+   "options": "Text"
+  },
+  {
+   "fieldname": "errors",
+   "fieldtype": "Code",
+   "label": "Errors",
+   "read_only": 1,
+   "options": "Text"
+  }
+ ],
+ "links": [],
+ "modified": "2024-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Testcase Manager",
+ "name": "Testcase Log",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "title_field": "test_method",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "track_changes": 0
+}

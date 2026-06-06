@@ -1,9 +1,9 @@
 [project]
-name = "testcase"
+name = "testcase_manager"
 authors = [
     { name = "Nihantra Patel", email = "nihantra@frappe.io"}
 ]
-description = "TestCase"
+description = "Testcase Manager"
 requires-python = ">=3.14"
 readme = "README.md"
 dynamic = ["version"]
