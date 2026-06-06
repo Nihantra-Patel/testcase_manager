@@ -8,7 +8,7 @@ repos:
     rev: v6.0.0
     hooks:
       - id: trailing-whitespace
-        files: "testcase.*"
+        files: "testcase_manager.*"
         exclude: ".*json$|.*txt$|.*csv|.*md|.*svg"
       - id: check-merge-conflict
       - id: check-ast
@@ -38,11 +38,11 @@ repos:
         # Ignore any files that might contain jinja / bundles
         exclude: |
             (?x)^(
-                testcase/public/dist/.*|
+                testcase_manager/public/dist/.*|
                 .*node_modules.*|
                 .*boilerplate.*|
-                testcase/templates/includes/.*|
-                testcase/public/js/lib/.*
+                testcase_manager/templates/includes/.*|
+                testcase_manager/public/js/lib/.*
             )$
 
 
@@ -55,12 +55,12 @@ repos:
         # Ignore any files that might contain jinja / bundles
         exclude: |
             (?x)^(
-                testcase/public/dist/.*|
+                testcase_manager/public/dist/.*|
                 cypress/.*|
                 .*node_modules.*|
                 .*boilerplate.*|
-                testcase/templates/includes/.*|
-                testcase/public/js/lib/.*
+                testcase_manager/templates/includes/.*|
+                testcase_manager/public/js/lib/.*
             )$
 
 ci:
