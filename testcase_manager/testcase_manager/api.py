@@ -13,9 +13,14 @@ from frappe.utils import now_datetime
 
 
 @frappe.whitelist()
-def run_test_case(test_case: str, run_scope: str = "Method") -> dict:
+def run_test_case(test_case: str, run_scope: str = "Method", background: int | str | bool = 0) -> dict:
 	"""
-	Create a Test Case Run and enqueue the background execution job.
+	Create a Test Case Run and execute it.
+
+	By default (``background`` falsy) the test runs *inline* in the current
+	request — faster, no RQ queue/worker pickup latency. The UI uses this for
+	single tests and small selections. Heavy runs (>20 tests, "Run Entire App")
+	pass ``background=1`` so they execute in an RQ worker without blocking.
 
 	Returns:
 	    dict with ``run_name`` (the new Test Case Run ID) and ``task_id``
@@ -35,15 +40,56 @@ def run_test_case(test_case: str, run_scope: str = "Method") -> dict:
 	run.insert(ignore_permissions=True)
 	frappe.db.commit()
 
-	frappe.enqueue(
-		"testcase_manager.testcase_manager.executor.execute_test_case_job",
-		queue="long",
-		timeout=1800,
-		job_id=f"tc_run_{run.name}",
-		run_name=run.name,
-	)
+	use_bg = str(background) not in ("0", "", "false", "False", "None")
 
-	return {"run_name": run.name, "task_id": run.name}
+	if use_bg:
+		frappe.enqueue(
+			"testcase_manager.testcase_manager.executor.execute_test_case_job",
+			queue="long",
+			timeout=1800,
+			job_id=f"tc_run_{run.name}",
+			run_name=run.name,
+		)
+	else:
+		# Run inline so there is no worker pickup latency. Realtime events are
+		# still published during the run, but since the browser only subscribes
+		# after this call returns, the UI relies on the returned ``result`` for
+		# rendering. The full output + counts are loaded from the saved run.
+		from testcase_manager.testcase_manager.executor import execute_test_case_job
+
+		execute_test_case_job(run.name)
+
+		run.reload()
+		log_name = frappe.db.get_value("Testcase Log", {"run_reference": run.name}, "name")
+		log = (
+			frappe.db.get_value(
+				"Testcase Log",
+				log_name,
+				["passed_count", "failed_count", "error_count"],
+				as_dict=True,
+			)
+			if log_name
+			else {}
+		)
+		return {
+			"run_name": run.name,
+			"task_id": run.name,
+			"background": False,
+			"result": {
+				"run_name": run.name,
+				"status": run.status,
+				"log_name": log_name,
+				"summary": run.result,
+				"duration": run.duration,
+				"passed": (log or {}).get("passed_count") or 0,
+				"failed": (log or {}).get("failed_count") or 0,
+				"errors": (log or {}).get("error_count") or 0,
+				"full_output": run.full_output,
+				"traceback": run.traceback,
+			},
+		}
+
+	return {"run_name": run.name, "task_id": run.name, "background": use_bg}
 
 
 @frappe.whitelist()
@@ -107,27 +153,39 @@ def rerun_test(run_name: str) -> dict:
 
 
 @frappe.whitelist()
-def sync_test_cases(app: str | None = None) -> dict:
+def sync_test_cases(
+	app: str | None = None,
+	reference_type: str | None = None,
+	reference: str | None = None,
+) -> dict:
 	"""
-	Trigger test case discovery for one app or all installed apps.
+	Trigger test case discovery, scoped to the caller's current filters.
 
-	This runs synchronously for a single app; for all apps it uses a
-	background job to avoid request timeouts.
+	Scope (narrowest wins):
+	  - app + reference_type + reference → just that DocType/Report (sync)
+	  - app + reference_type             → that app's DocTypes/Reports (sync)
+	  - app                              → the whole app (sync)
+	  - none                             → every installed app (background job)
+
+	Scoped syncs run synchronously (fast); only a full all-apps sync is queued.
 	"""
 	from testcase_manager.testcase_manager.discovery import discover_all_test_cases
 
-	if app:
-		result = discover_all_test_cases(app_name=app)
-	else:
-		frappe.enqueue(
-			"testcase_manager.testcase_manager.discovery.discover_all_test_cases",
-			queue="long",
-			timeout=600,
-			job_id="tc_full_sync",
+	if app and app.strip():
+		result = discover_all_test_cases(
+			app_name=app.strip(),
+			reference_type=(reference_type or "").strip() or None,
+			reference=(reference or "").strip() or None,
 		)
-		return {"status": "queued", "message": "Full sync queued in background"}
+		return {"status": "ok", **result}
 
-	return {"status": "ok", **result}
+	frappe.enqueue(
+		"testcase_manager.testcase_manager.discovery.discover_all_test_cases",
+		queue="long",
+		timeout=600,
+		job_id="tc_full_sync",
+	)
+	return {"status": "queued", "message": "Full sync queued in background"}
 
 
 # ---------------------------------------------------------------------------
@@ -261,7 +319,8 @@ def run_app_tests(app: str) -> dict:
 	anchor = frappe.db.get_value("Testcase", {"app": app, "status": "Active"}, "name")
 	if not anchor:
 		frappe.throw(f"No active test cases found for app '{app}'")
-	return run_test_case(anchor, run_scope="App")
+	# Whole-app runs are long → always background.
+	return run_test_case(anchor, run_scope="App", background=1)
 
 
 @frappe.whitelist()

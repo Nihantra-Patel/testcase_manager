@@ -37,10 +37,10 @@ class TestRunnerPage {
 
 	_build_layout() {
 		const $body = $(this.wrapper).find(".page-content");
-		$body.empty().css({ padding: "0", overflow: "hidden" });
+		$body.empty().css({ padding: "0", overflow: "hidden", margin: "0" });
 
 		this.$layout = $(`
-			<div class="tc-root" style="display:flex;flex-direction:column;height:calc(100vh - 118px);">
+			<div class="tc-root" style="display:flex;flex-direction:column;overflow:hidden;">
 
 				<!-- ─── Filter bar ─── -->
 				<div class="tc-filters" style="
@@ -76,7 +76,7 @@ class TestRunnerPage {
 							&#x25B6;&nbsp;Run Entire App
 						</button>
 						<button class="btn btn-sm btn-default tc-reset-btn" title="Clear all filters">
-							&#x2715;&nbsp;Clear &amp; Reset
+							&#x2715;&nbsp;Clear Filter
 						</button>
 						<button class="btn btn-sm btn-default tc-sync-btn" title="Re-discover test cases">
 							&#x21BB;&nbsp;Sync
@@ -86,7 +86,7 @@ class TestRunnerPage {
 
 				<!-- ─── Two-column body ─── -->
 				<div style="display:flex;flex:1;overflow:hidden;">
-					<div style="flex:0 0 420px;display:flex;flex-direction:column;border-right:1px solid var(--border-color);">
+					<div style="flex:0 0 40%;max-width:40%;display:flex;flex-direction:column;border-right:1px solid var(--border-color);">
 						<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 12px;border-bottom:1px solid var(--border-color);background:var(--subtle-bg);flex-shrink:0;">
 							<span style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;">Tests</span>
 							<label style="font-size:12px;cursor:pointer;user-select:none;margin:0;display:flex;align-items:center;gap:4px;">
@@ -96,7 +96,7 @@ class TestRunnerPage {
 						<div class="tc-list" style="flex:1;overflow-y:auto;"></div>
 					</div>
 
-					<div style="flex:1;display:flex;flex-direction:column;min-width:0;">
+					<div style="flex:0 0 60%;max-width:60%;display:flex;flex-direction:column;min-width:0;">
 						<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 12px;border-bottom:1px solid var(--border-color);background:var(--subtle-bg);flex-shrink:0;">
 							<span class="tc-run-label" style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:400px;">Console</span>
 							<div style="display:flex;gap:6px;align-items:center;flex-shrink:0;">
@@ -106,7 +106,7 @@ class TestRunnerPage {
 								<button class="btn btn-xs btn-default tc-clear-btn">Clear</button>
 							</div>
 						</div>
-						<div class="tc-console" style="flex:1;font-family:'Courier New',Courier,monospace;font-size:12px;background:#1e1e1e;color:#d4d4d4;padding:14px 16px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;line-height:1.6;"></div>
+						<div class="tc-console" style="flex:1;font-family:'SFMono-Regular',Menlo,Consolas,'Courier New',monospace;font-size:12px;background:#0d1117;color:#e6edf3;padding:14px 16px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;line-height:1.65;"></div>
 						<div class="tc-summary" style="display:none;padding:8px 14px;font-size:13px;font-weight:700;flex-shrink:0;"></div>
 						<div class="tc-log-link-row" style="display:none;padding:4px 14px 8px;flex-shrink:0;">
 							<a class="tc-log-link" href="#" style="font-size:12px;color:var(--primary);text-decoration:none;">Open full log &#x2192;</a>
@@ -115,6 +115,17 @@ class TestRunnerPage {
 				</div>
 			</div>
 		`).appendTo($body);
+
+		// Size the layout to exactly fill from its real top to the viewport bottom
+		// (no magic constant), so there is never a blank strip beneath the console.
+		this._fit_height();
+		// Recalc on next frame too — the header/breadcrumbs may not have settled
+		// their final height on the first synchronous measurement.
+		setTimeout(() => this._fit_height(), 0);
+		setTimeout(() => this._fit_height(), 200);
+		$(window)
+			.off("resize.tcrunner")
+			.on("resize.tcrunner", () => this._fit_height());
 
 		this.$layout.find(".tc-flabel").css({
 			fontSize: "11px",
@@ -171,6 +182,13 @@ class TestRunnerPage {
 		this.$runapp_btn.on("click", () => this._run_entire_app());
 	}
 
+	// Fill exactly from the layout's top edge to the bottom of the window.
+	_fit_height() {
+		if (!this.$layout || !this.$layout.length) return;
+		const top = this.$layout[0].getBoundingClientRect().top;
+		this.$layout.css("height", `${Math.max(window.innerHeight - top, 300)}px`);
+	}
+
 	// ── DocType/Report Link control (real Link field, app-scoped) ─────────
 
 	_init_ref_control($container) {
@@ -189,6 +207,9 @@ class TestRunnerPage {
 					return modules.length ? { filters: { module: ["in", modules] } } : {};
 				},
 				change: () => {
+					// Suppress while we programmatically clear/restore the value,
+					// otherwise the restore would be overwritten with an empty ref.
+					if (this._suppress_ref_change) return;
 					this._save_filters();
 					this._query_server();
 				},
@@ -225,7 +246,9 @@ class TestRunnerPage {
 
 		this.ref_ctrl.df.options = type === "Report" ? "Report" : "DocType";
 		this.ref_ctrl.df.placeholder = type === "Report" ? __("All Reports") : __("All DocTypes");
-		this.ref_ctrl.set_value("");
+		this._suppress_ref_change = true;
+		await this.ref_ctrl.set_value("");
+		this._suppress_ref_change = false;
 		this.ref_ctrl.refresh();
 	}
 
@@ -287,8 +310,13 @@ class TestRunnerPage {
 		this._toggle_runapp_btn();
 
 		await this._refresh_ref_control();
-		// Restore a previously-selected DocType/Report after the control is scoped
-		if (this._saved && this._saved.ref) this.ref_ctrl.set_value(this._saved.ref);
+		// Restore a previously-selected DocType/Report after the control is scoped.
+		// Suppress the change handler so the restore isn't double-queried/overwritten.
+		if (this._saved && this._saved.ref) {
+			this._suppress_ref_change = true;
+			await this.ref_ctrl.set_value(this._saved.ref);
+			this._suppress_ref_change = false;
+		}
 		this._query_server();
 	}
 
@@ -435,19 +463,32 @@ class TestRunnerPage {
 
 	_run_one(test_case_name, label) {
 		this._start_session("single", label);
+		this._set_status(__("Running"), "#dca03c");
 		frappe.call({
 			method: "testcase_manager.testcase_manager.api.run_test_case",
-			args: { test_case: test_case_name, run_scope: "Method" },
+			args: { test_case: test_case_name, run_scope: "Method", background: 0 },
 			callback: (r) => {
 				if (!r.message) {
 					this._end_session();
 					return;
 				}
-				this._subscribe(r.message.run_name);
-				this._set_status(__("Running"), "#dca03c");
 				this._set_log_link(__("Open run →"), "Testcase Run", r.message.run_name);
+				if (r.message.result) {
+					// Inline run — already finished; render from returned result.
+					this.current_run = r.message.run_name;
+					this._render_inline_output(r.message.result);
+					this._on_run_complete(r.message.result, true);
+				} else {
+					this._subscribe(r.message.run_name);
+				}
 			},
 		});
+	}
+
+	// Paint full_output into the console for an inline (non-realtime) run.
+	_render_inline_output(result) {
+		this.$console.empty();
+		(result.full_output || "").split("\n").forEach((l) => this._append_line(l));
 	}
 
 	_run_entire_app() {
@@ -457,7 +498,7 @@ class TestRunnerPage {
 			__("Run the ENTIRE test suite for <b>{0}</b>? This may take a while.", [app]),
 			() => {
 				this._start_session("single", __("Entire app: {0}", [app]));
-				this._append_line(`Running entire app: ${app}`, "#569cd6");
+				this._append_line(`Running entire app: ${app}`, "#79c0ff");
 				frappe.call({
 					method: "testcase_manager.testcase_manager.api.run_app_tests",
 					args: { app },
@@ -499,7 +540,9 @@ class TestRunnerPage {
 		this._queue_total = this._run_queue.length;
 		this._queue_done = 0;
 		this._pending_next = null;
-		this._append_line(`Running ${this._queue_total} tests sequentially…`, "#569cd6");
+		// Inline for small selections (no worker latency); background past 20.
+		this._queue_background = this._queue_total > 20;
+		this._append_line(`Running ${this._queue_total} tests sequentially…`, "#79c0ff");
 		this._process_queue();
 	}
 
@@ -514,20 +557,34 @@ class TestRunnerPage {
 		}
 		const { name, label } = this._run_queue.shift();
 		this._queue_done++;
-		this._append_line(`\n${"─".repeat(50)}`, "#555");
-		this._append_line(`[${this._queue_done}/${this._queue_total}] ${label}`, "#569cd6");
+		this._append_line(`\n${"─".repeat(50)}`, "#6e7681");
+		this._append_line(`[${this._queue_done}/${this._queue_total}] ${label}`, "#79c0ff");
 		this._set_status(`${this._queue_done}/${this._queue_total}`, "#dca03c");
 		frappe.call({
 			method: "testcase_manager.testcase_manager.api.run_test_case",
-			args: { test_case: name, run_scope: "Method" },
+			args: {
+				test_case: name,
+				run_scope: "Method",
+				background: this._queue_background ? 1 : 0,
+			},
 			callback: (r) => {
 				if (!r.message) {
-					this._append_line("  ERROR: API call failed.", "#f48771");
+					this._append_line("  ERROR: API call failed.", "#ff7b72");
 					this._process_queue();
 					return;
 				}
-				this._subscribe(r.message.run_name);
-				this._pending_next = () => this._process_queue();
+				if (r.message.result) {
+					// Inline — already finished; render output then advance.
+					this.current_run = r.message.run_name;
+					(r.message.result.full_output || "")
+						.split("\n")
+						.forEach((l) => this._append_line(l));
+					this._pending_next = () => this._process_queue();
+					this._on_run_complete(r.message.result, true);
+				} else {
+					this._subscribe(r.message.run_name);
+					this._pending_next = () => this._process_queue();
+				}
 			},
 		});
 	}
@@ -547,10 +604,10 @@ class TestRunnerPage {
 			});
 		}
 		this.current_run = null;
-		this._append_line("\n■ Stopped by user.", "#f48771");
+		this._append_line("\n■ Stopped by user.", "#ff7b72");
 		this._set_status(__("Stopped"), "#999");
 		this.$summary
-			.css({ background: "#4a1515", color: "#f48771" })
+			.css({ background: "#4a1515", color: "#ff7b72" })
 			.html("&#x25A0; Stopped by user")
 			.show();
 		this._end_session();
@@ -559,10 +616,30 @@ class TestRunnerPage {
 	// ── Sync ─────────────────────────────────────────────────────────────
 
 	_sync_all() {
+		// Scope the sync to whatever filters are currently selected.
+		const app = this.$f_app.val() || "";
+		const type = this.$f_type.val() || "";
+		const ref = this._get_ref_value();
+
+		const args = { app };
+		if (app) {
+			if (type) args.reference_type = type;
+			if (ref) args.reference = ref;
+		}
+
+		const scope_label = !app
+			? __("all apps")
+			: ref
+			? `${app} › ${ref}`
+			: type
+			? `${app} › ${type}`
+			: app;
+
 		frappe.call({
 			method: "testcase_manager.testcase_manager.api.sync_test_cases",
+			args,
 			freeze: true,
-			freeze_message: __("Syncing…"),
+			freeze_message: __("Syncing {0}…", [scope_label]),
 			callback: (r) => {
 				const m = r.message || {};
 				if (m.status === "queued") {
@@ -573,11 +650,12 @@ class TestRunnerPage {
 				} else {
 					frappe.show_alert({
 						message: __(
-							"Sync complete — created: {0}, updated: {1}, deactivated: {2}",
-							[m.created, m.updated, m.deactivated]
+							"Sync complete ({0}) — created: {1}, updated: {2}, deleted: {3}",
+							[scope_label, m.created, m.updated, m.deleted]
 						),
 						indicator: "green",
 					});
+					// Refresh apps dropdown + reload the test list with current filters.
 					this._load_apps();
 				}
 			},
@@ -672,9 +750,9 @@ class TestRunnerPage {
 		this.$log_link_row.show();
 	}
 
-	_on_run_complete(data) {
+	_on_run_complete(data, inline = false) {
 		if (this._stopped) return;
-		frappe.realtime.task_unsubscribe(this.current_run);
+		if (!inline) frappe.realtime.task_unsubscribe(this.current_run);
 
 		// Accumulate this run's counts into the session totals.
 		if (this._session) {
@@ -685,7 +763,8 @@ class TestRunnerPage {
 
 		// In single mode the streamed lines are already shown; only re-render
 		// from full_output if we clearly missed a chunk (fast test / timing).
-		if (data.full_output) {
+		// For inline runs the output was already painted by _render_inline_output.
+		if (data.full_output && !inline) {
 			const seen = this.$console.children().length;
 			const total = data.full_output.split("\n").length;
 			if (seen < total * 0.6) {
@@ -693,7 +772,7 @@ class TestRunnerPage {
 				data.full_output.split("\n").forEach((l) => this._append_line(l));
 			}
 		}
-		if (data.duration) this._append_line(`Duration: ${data.duration}s`, "#888");
+		if (data.duration) this._append_line(`Duration: ${data.duration}s`, "#8b949e");
 
 		const queue_continuing =
 			this._pending_next &&
@@ -723,7 +802,7 @@ class TestRunnerPage {
 	// Render the green/red summary bar from accumulated counts.
 	_render_summary(sess, status_label) {
 		const ok = sess.failed + sess.errors === 0;
-		const fg = ok ? "#4ec9b0" : "#f48771";
+		const fg = ok ? "#3fb950" : "#ff7b72";
 		const bg = ok ? "#1a472a" : "#4a1515";
 		const icon = ok ? "✔" : "✖";
 		const word = ok ? "Passed" : "Failed";
@@ -748,15 +827,16 @@ function _stripAnsi(str) {
 }
 
 function _colourLine(safe) {
-	if (/✔|PASS\b|^OK\b/.test(safe)) return `<span style="color:#4ec9b0">${safe}</span>`;
-	if (/✖/.test(safe)) return `<span style="color:#f48771">${safe}</span>`;
+	// High-contrast palette tuned for the #0d1117 background.
+	if (/✔|PASS\b|^OK\b/.test(safe)) return `<span style="color:#3fb950">${safe}</span>`;
+	if (/✖/.test(safe)) return `<span style="color:#ff7b72">${safe}</span>`;
 	if (/^FAIL\b|^ERROR\b|^AssertionError/.test(safe))
-		return `<span style="color:#f48771">${safe}</span>`;
-	if (/^Traceback/.test(safe)) return `<span style="color:#ce9178">${safe}</span>`;
-	if (/^\s+File "|^\s+raise /.test(safe)) return `<span style="color:#ce9178">${safe}</span>`;
-	if (/^Running \d|^Ran \d/.test(safe)) return `<span style="color:#569cd6">${safe}</span>`;
-	if (/^={3,}$|^-{3,}$/.test(safe)) return `<span style="color:#555">${safe}</span>`;
+		return `<span style="color:#ff7b72;font-weight:600">${safe}</span>`;
+	if (/^Traceback/.test(safe)) return `<span style="color:#ffa657">${safe}</span>`;
+	if (/^\s+File "|^\s+raise /.test(safe)) return `<span style="color:#ffa657">${safe}</span>`;
+	if (/^Running \d|^Ran \d/.test(safe)) return `<span style="color:#79c0ff">${safe}</span>`;
+	if (/^={3,}$|^-{3,}$/.test(safe)) return `<span style="color:#6e7681">${safe}</span>`;
 	if (/^FAILED\b/.test(safe))
-		return `<span style="color:#f48771;font-weight:700">${safe}</span>`;
-	return `<span style="color:#d4d4d4">${safe}</span>`;
+		return `<span style="color:#ff7b72;font-weight:700">${safe}</span>`;
+	return `<span style="color:#e6edf3">${safe}</span>`;
 }

@@ -18,18 +18,31 @@ from frappe.utils import now_datetime
 # ---------------------------------------------------------------------------
 
 
-def discover_all_test_cases(app_name: str | None = None) -> dict:
+def discover_all_test_cases(
+	app_name: str | None = None,
+	reference_type: str | None = None,
+	reference: str | None = None,
+) -> dict:
 	"""
-	Discover test cases for one app (or all installed apps) and sync records.
-	Returns a summary dict: {created, updated, deactivated, errors}.
+	Discover test cases and sync records.
+
+	Scope (narrowest wins):
+	  - app_name + reference_type + reference → only that one DocType/Report
+	  - app_name + reference_type            → only that app's DocTypes (or Reports)
+	  - app_name                             → the whole app
+	  - none                                 → every installed app
+
+	Returns a summary dict: {created, updated, deleted, errors}.
 	"""
 	apps = [app_name] if app_name else frappe.get_installed_apps()
-	summary: dict = {"created": 0, "updated": 0, "deactivated": 0, "errors": []}
+	ref_type = (reference_type or "").strip()
+	ref_name = (reference or "").strip()
+	summary: dict = {"created": 0, "updated": 0, "deleted": 0, "errors": []}
 
 	for app in apps:
 		try:
-			result = _discover_app(app)
-			for k in ("created", "updated", "deactivated"):
+			result = _discover_app(app, ref_type, ref_name)
+			for k in ("created", "updated", "deleted"):
 				summary[k] += result.get(k, 0)
 		except Exception as exc:
 			msg = f"{app}: {exc}"
@@ -44,7 +57,7 @@ def discover_all_test_cases(app_name: str | None = None) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _discover_app(app: str) -> dict:
+def _discover_app(app: str, ref_type: str = "", ref_name: str = "") -> dict:
 	app_path = Path(frappe.get_app_path(app))
 	discovered: list[dict] = []
 
@@ -92,6 +105,14 @@ def _discover_app(app: str) -> dict:
 			module_label = _infer_frappe_module(file_path, app_path)
 			rel_path = str(file_path.relative_to(app_path.parent))
 
+			# Scope filter: skip files that don't match the requested type/name.
+			if ref_type and reference_type != ref_type:
+				continue
+			if ref_name:
+				this_ref = report if reference_type == "Report" else reference_doctype
+				if this_ref != ref_name:
+					continue
+
 			for method in methods:
 				discovered.append(
 					{
@@ -107,7 +128,7 @@ def _discover_app(app: str) -> dict:
 					}
 				)
 
-	return _sync_records(app, discovered)
+	return _sync_records(app, discovered, ref_type, ref_name)
 
 
 # ---------------------------------------------------------------------------
@@ -212,14 +233,26 @@ def _make_key(python_path: str, test_method: str) -> str:
 	return hashlib.md5(raw.encode()).hexdigest()[:12].upper()
 
 
-def _sync_records(app: str, discovered: list[dict]) -> dict:
-	"""Upsert discovered test cases and deactivate stale ones."""
-	counts = {"created": 0, "updated": 0, "deactivated": 0}
+def _sync_records(app: str, discovered: list[dict], ref_type: str = "", ref_name: str = "") -> dict:
+	"""
+	Upsert discovered test cases and deactivate stale ones.
 
-	# Fetch existing records for this app
+	When ``ref_type``/``ref_name`` are given the existing-record set (and thus
+	the stale deactivation) is scoped to the same subset, so a scoped sync never
+	touches the rest of the app's tests.
+	"""
+	counts = {"created": 0, "updated": 0, "deleted": 0}
+
+	# Fetch existing records for this app — scoped to the same subset being synced.
+	ex_filters: dict = {"app": app}
+	if ref_type:
+		ex_filters["reference_type"] = ref_type
+	if ref_name:
+		ex_filters["report" if ref_type == "Report" else "reference_doctype"] = ref_name
+
 	existing_rows = frappe.get_all(
 		"Testcase",
-		filters={"app": app},
+		filters=ex_filters,
 		fields=["name", "python_path", "test_method"],
 	)
 	existing: dict[str, str] = {f"{r.python_path}::{r.test_method}": r.name for r in existing_rows}
@@ -267,11 +300,27 @@ def _sync_records(app: str, discovered: list[dict]) -> dict:
 				"Testcase Manager discovery",
 			)
 
-	# Deactivate test cases that no longer exist on disk
+	# Delete test cases that no longer exist on disk (within the synced scope).
+	# Also delete their dependent Run/Log rows so nothing is left orphaned.
 	for key, name in existing.items():
 		if key not in discovered_keys:
-			frappe.db.set_value("Testcase", name, "status", "Inactive", update_modified=False)
-			counts["deactivated"] += 1
+			try:
+				_delete_testcase(name)
+				counts["deleted"] += 1
+			except Exception:
+				frappe.log_error(
+					f"TestCase delete failed for stale record: {name}",
+					"Testcase Manager discovery",
+				)
 
 	frappe.db.commit()
 	return counts
+
+
+def _delete_testcase(name: str) -> None:
+	"""Hard-delete a Testcase and its dependent Run/Log records."""
+	run_names = frappe.get_all("Testcase Run", filters={"test_case": name}, pluck="name")
+	for run in run_names:
+		frappe.db.delete("Testcase Log", {"run_reference": run})
+	frappe.db.delete("Testcase Run", {"test_case": name})
+	frappe.delete_doc("Testcase", name, force=True, ignore_permissions=True, delete_permanently=True)
