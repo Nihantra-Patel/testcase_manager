@@ -160,17 +160,12 @@ function createRunner() {
     appendLine(`▶ Running ${names.length} tests together (one shared setup)`)
     appendLine('Please wait — test environment is being prepared…')
     appendLine('')
-    const background = names.length > 20 ? 1 : 0
     try {
-      const res = await api.runTestBatch(names, background)
-      currentRun.value = res.run_name
+      // Always background → the worker publishes output test-by-test in realtime.
+      // (Running inline would block the request and deliver all output at once.)
+      const res = await api.runTestBatch(names, 1)
       lastRun.value = res.run_name
-      if (res.result) {
-        renderInline(res.result)
-        handleComplete(res.result, true)
-      } else {
-        subscribe(res.run_name)
-      }
+      subscribe(res.run_name)
     } catch (e) {
       appendLine('✖ Failed to start the batch (API error).')
       endSession()

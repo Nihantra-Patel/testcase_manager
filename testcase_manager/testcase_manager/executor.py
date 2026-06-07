@@ -354,6 +354,28 @@ def execute_test_batch_job(run_name: str, test_cases: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _streaming_result_class():
+	"""
+	A TestResult that announces each test *before* it runs.
+
+	Frappe's stock TestResult only writes a line once a test finishes
+	(``✔ name``/``✖ name``), so a slow test looks like a hang. This subclass
+	emits a "▸ running name…" line in ``startTest`` so the UI shows which test
+	is currently executing, in real time. Built lazily so the import of
+	frappe.testing happens inside the worker.
+	"""
+	from frappe.testing.result import TestResult
+
+	class StreamingTestResult(TestResult):
+		def startTest(self, test):
+			super().startTest(test)
+			method = self.getTestMethodName(test)
+			self.stream.write(f"  ▸ running {method} …\n")
+			self.stream.flush()
+
+	return StreamingTestResult
+
+
 def _run_tests_in_process(tc, run_scope: str, stream: "RealtimeLineStream") -> list:
 	"""
 	Run Frappe tests in-process using the same TestRunner frappe uses.
@@ -381,7 +403,7 @@ def _run_tests_in_process(tc, run_scope: str, stream: "RealtimeLineStream") -> l
 	# this still sets toggle_test_mode(True) which integration tests require.
 	_initialize_test_environment(site, config)
 
-	runner = TestRunner(stream=stream, verbosity=2, cfg=config)
+	runner = TestRunner(stream=stream, verbosity=2, cfg=config, resultclass=_streaming_result_class())
 
 	# Long-lived workers cache imported test modules in sys.modules, so edits to
 	# a test file on disk would be ignored (old bytecode keeps running) until the
@@ -422,7 +444,7 @@ def _run_batch_in_process(tcs: list, stream: "RealtimeLineStream") -> list:
 	config = TestConfig(tests=methods)
 	_initialize_test_environment(site, config)
 
-	runner = TestRunner(stream=stream, verbosity=2, cfg=config)
+	runner = TestRunner(stream=stream, verbosity=2, cfg=config, resultclass=_streaming_result_class())
 
 	# Pick up on-disk edits (see _invalidate_test_module).
 	for p in python_paths:
