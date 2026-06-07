@@ -51,8 +51,8 @@ def run_test_case(test_case: str, run_scope: str = "Method", background: int | s
 	# label, so use a descriptive title instead (shown in History).
 	run.test_method = f"Entire test suite for: {tc.app}" if run_scope == "App" else tc.test_method
 	run.python_path = tc.python_path
-	# Type label for History. A whole-app run spans every type, so leave it blank.
-	run.reference_type = "" if run_scope == "App" else (tc.reference_type or "")
+	# Type label for History. A whole-app run spans every type, so label it "App".
+	run.reference_type = "App" if run_scope == "App" else (tc.reference_type or "")
 	run.site = frappe.local.site
 	run.triggered_by = frappe.session.user
 	run.status = "Pending"

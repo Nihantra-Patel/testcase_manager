@@ -120,21 +120,23 @@ const typeOptions = [
   { label: 'All Types', value: '' },
   { label: 'DocType', value: 'DocType' },
   { label: 'Report', value: 'Report' },
+  { label: 'DocType-Report', value: 'DocType-Report' },
+  { label: 'App', value: 'App' },
 ]
 const appOptions = computed(() => [
   { label: 'All Apps', value: '' },
   ...apps.value.map((a) => ({ label: a, value: a })),
 ])
 
-// The Testcase Run now stores its own `reference_type` ("DocType", "Report",
-// or "DocType-Report" for mixed batches), so the Type filter is a simple `like`
-// (selecting "DocType" also matches "DocType-Report").
+// The Testcase Run stores its own `reference_type` — one of "DocType",
+// "Report", "DocType-Report" (mixed batch), or "App" (whole-app run) — so the
+// Type filter is an exact match against that stored value.
 function buildFilters() {
   const f = {}
   if (filters.app) f.app = filters.app
   if (filters.status) f.status = filters.status
   if (filters.search.trim()) f.test_method = ['like', `%${filters.search.trim()}%`]
-  if (filters.type) f.reference_type = ['like', `%${filters.type}%`]
+  if (filters.type) f.reference_type = filters.type
   return f
 }
 
