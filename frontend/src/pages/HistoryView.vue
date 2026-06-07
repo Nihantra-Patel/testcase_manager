@@ -126,27 +126,15 @@ const appOptions = computed(() => [
   ...apps.value.map((a) => ({ label: a, value: a })),
 ])
 
-// Testcase names matching the selected reference_type (Report/DocType). The
-// Testcase Run has no reference_type of its own, so we translate the Type filter
-// into an `in` filter on test_case. Refreshed whenever the Type changes.
-const typeTestCases = ref(null)
-
+// The Testcase Run now stores its own `reference_type` ("DocType", "Report",
+// or "DocType-Report" for mixed batches), so the Type filter is a simple `like`
+// (selecting "DocType" also matches "DocType-Report").
 function buildFilters() {
   const f = {}
   if (filters.app) f.app = filters.app
   if (filters.status) f.status = filters.status
   if (filters.search.trim()) f.test_method = ['like', `%${filters.search.trim()}%`]
-  if (filters.type) f.test_case = ['in', typeTestCases.value && typeTestCases.value.length ? typeTestCases.value : ['']]
-  return f
-}
-
-function buildCountFilters() {
-  const f = {}
-  if (filters.app) f.app = filters.app
-  if (filters.status) f.status = filters.status
-  if (filters.search.trim()) f.test_method = ['like', `%${filters.search.trim()}%`]
-  // The count endpoint does the type→testcase translation server-side.
-  if (filters.type) f['test_case.reference_type'] = filters.type
+  if (filters.type) f.reference_type = ['like', `%${filters.type}%`]
   return f
 }
 
@@ -160,7 +148,7 @@ const runs = createListResource({
     'status',
     'duration',
     'creation',
-    'test_case.reference_type',
+    'reference_type',
   ],
   filters: buildFilters(),
   orderBy: 'creation desc',
@@ -170,17 +158,11 @@ const runs = createListResource({
 
 const totalCount = ref(0)
 async function refreshCount() {
-  const res = await api.getRunCount(buildCountFilters())
+  const res = await api.getRunCount(buildFilters())
   totalCount.value = res?.count ?? 0
 }
 
-async function applyAndReload() {
-  // Resolve the type→testcase translation before building list filters.
-  if (filters.type) {
-    typeTestCases.value = (await api.getTestCaseNamesByType(filters.type)) || []
-  } else {
-    typeTestCases.value = null
-  }
+function applyAndReload() {
   runs.filters = buildFilters()
   runs.pageLength = pageSize.value
   runs.reload()

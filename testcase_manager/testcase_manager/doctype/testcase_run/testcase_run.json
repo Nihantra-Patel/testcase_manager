@@ -13,6 +13,7 @@
   "triggered_by",
   "section_break_test",
   "app",
+  "reference_type",
   "test_method",
   "python_path",
   "section_break_timing",
@@ -83,6 +84,14 @@
    "fieldname": "app",
    "fieldtype": "Data",
    "label": "App",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reference_type",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Type",
    "read_only": 1
   },
   {

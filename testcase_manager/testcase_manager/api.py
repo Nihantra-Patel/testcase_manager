@@ -12,6 +12,22 @@ from frappe.utils import now_datetime
 # ---------------------------------------------------------------------------
 
 
+def _combined_reference_type(test_case_names: list[str]) -> str:
+	"""
+	Build the History "Type" label for a run from its testcases' reference_types.
+
+	A single test → "DocType" or "Report". A batch spanning both → "DocType-Report"
+	(types joined, sorted, deduped). Tests with no reference_type are ignored.
+	"""
+	types = frappe.get_all(
+		"Testcase",
+		filters={"name": ["in", test_case_names]},
+		pluck="reference_type",
+	)
+	distinct = sorted({t for t in types if t})
+	return "-".join(distinct)
+
+
 @frappe.whitelist()
 def run_test_case(test_case: str, run_scope: str = "Method", background: int | str | bool = 0) -> dict:
 	"""
@@ -35,6 +51,8 @@ def run_test_case(test_case: str, run_scope: str = "Method", background: int | s
 	# label, so use a descriptive title instead (shown in History).
 	run.test_method = f"Entire test suite for: {tc.app}" if run_scope == "App" else tc.test_method
 	run.python_path = tc.python_path
+	# Type label for History. A whole-app run spans every type, so leave it blank.
+	run.reference_type = "" if run_scope == "App" else (tc.reference_type or "")
 	run.site = frappe.local.site
 	run.triggered_by = frappe.session.user
 	run.status = "Pending"
@@ -145,6 +163,8 @@ def run_test_batch(test_cases: str | list, background: int | str | bool = 0) -> 
 	run.app = anchor.app
 	run.test_method = f"{len(test_cases)} tests (batch)"
 	run.python_path = anchor.python_path
+	# Combined type across the batch → "DocType", "Report", or "DocType-Report".
+	run.reference_type = _combined_reference_type(test_cases)
 	run.site = frappe.local.site
 	run.triggered_by = frappe.session.user
 	run.status = "Pending"
@@ -400,32 +420,10 @@ def run_app_tests(app: str) -> dict:
 
 @frappe.whitelist()
 def get_run_count(filters: str | dict | None = None) -> dict:
-	"""
-	Total number of Testcase Run records matching the History page filters.
-
-	The History page filters on ``test_case.reference_type`` (a field on the
-	*linked* Testcase, not on the run itself); that dotted key is translated into
-	a subquery on the Testcase names with the requested reference_type.
-	"""
+	"""Total number of Testcase Run records matching the History page filters."""
 	import json
 
 	if isinstance(filters, str):
 		filters = json.loads(filters or "{}")
-	filters = dict(filters or {})
 
-	reference_type = filters.pop("test_case.reference_type", None)
-	if reference_type:
-		test_cases = frappe.get_all("Testcase", filters={"reference_type": reference_type}, pluck="name")
-		# No matching testcases → no runs.
-		filters["test_case"] = ["in", test_cases or [""]]
-
-	return {"count": frappe.db.count("Testcase Run", filters=filters)}
-
-
-@frappe.whitelist()
-def get_test_case_names_by_type(reference_type: str) -> list[str]:
-	"""Testcase names with the given reference_type — used by the History page's
-	Type filter to translate into an ``in`` filter on Testcase Run.test_case."""
-	if not (reference_type and reference_type.strip()):
-		return []
-	return frappe.get_all("Testcase", filters={"reference_type": reference_type.strip()}, pluck="name")
+	return {"count": frappe.db.count("Testcase Run", filters=dict(filters or {}))}
