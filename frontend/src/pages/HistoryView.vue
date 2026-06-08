@@ -1,17 +1,7 @@
 <template>
   <div class="flex h-full flex-col overflow-hidden">
-    <!-- Header + filters -->
+    <!-- Filters -->
     <div class="border-b border-outline-gray-2 px-6 py-3">
-      <div class="mb-3 flex items-center justify-between">
-        <div class="flex items-baseline gap-2">
-          <span class="text-base font-semibold">Run History</span>
-          <span class="text-sm text-ink-gray-5">{{ totalCount }} total</span>
-        </div>
-        <Button variant="subtle" :loading="runs.loading" label="Refresh" @click="runs.reload()">
-          <template #prefix><FeatherIcon name="refresh-cw" class="h-3.5 w-3.5" /></template>
-        </Button>
-      </div>
-
       <div class="flex flex-wrap items-end gap-3">
         <div>
           <div class="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-gray-5">App</div>
@@ -38,13 +28,12 @@
             class="min-w-[200px]"
           />
         </div>
-        <div class="ml-auto">
-          <div class="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-gray-5">
-            Page size
-          </div>
-          <Select v-model="pageSize" :options="pageSizeOptions" class="min-w-[90px]" />
+        <div class="ml-auto flex items-end gap-2">
+          <Button variant="subtle" label="Clear Filter" @click="resetFilters" />
+          <Button variant="subtle" :loading="runs.loading" label="Refresh" @click="runs.reload()">
+            <template #prefix><FeatherIcon name="refresh-cw" class="h-3.5 w-3.5" /></template>
+          </Button>
         </div>
-        <Button variant="subtle" label="Reset Filters" @click="resetFilters" />
       </div>
     </div>
 
@@ -86,11 +75,36 @@
       </table>
     </div>
 
+    <!-- Bottom bar — page-size pills (left) + count and Load more (right) -->
     <div
-      v-if="runs.hasNextPage"
-      class="border-t border-outline-gray-2 px-6 py-2 text-center"
+      class="flex flex-shrink-0 items-center justify-between border-t border-outline-gray-2 px-6 py-2"
     >
-      <Button variant="subtle" label="Load more" @click="runs.next()" />
+      <div class="flex items-center gap-1">
+        <button
+          v-for="n in pageSizeOptions"
+          :key="n"
+          class="rounded px-2 py-1 text-xs font-medium transition-colors"
+          :class="
+            pageSize === n
+              ? 'bg-surface-gray-3 text-ink-gray-9'
+              : 'text-ink-gray-6 hover:bg-surface-gray-2'
+          "
+          @click="pageSize = n"
+        >
+          {{ n }}
+        </button>
+      </div>
+      <div class="flex items-center gap-3">
+        <span class="text-xs text-ink-gray-5">
+          {{ (runs.data || []).length }} of {{ totalCount }}
+        </span>
+        <Button
+          v-if="runs.hasNextPage"
+          variant="subtle"
+          label="Load more"
+          @click="runs.next()"
+        />
+      </div>
     </div>
   </div>
 </template>
@@ -106,7 +120,7 @@ const filters = reactive({ app: '', status: '', type: '', search: '' })
 const pageSize = ref(20)
 const apps = ref([])
 
-const pageSizeOptions = [20, 50, 100, 500, 2500].map((n) => ({ label: String(n), value: n }))
+const pageSizeOptions = [20, 100, 500, 2500]
 const statusOptions = [
   { label: 'All Status', value: '' },
   { label: 'Passed', value: 'Passed' },

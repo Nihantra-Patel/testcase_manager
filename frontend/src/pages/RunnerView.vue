@@ -36,7 +36,7 @@
           <template #prefix><FeatherIcon name="play" class="h-3.5 w-3.5" /></template>
           Run Entire App
         </Button>
-        <Button variant="subtle" label="Reset Filters" @click="resetFilters" />
+        <Button variant="subtle" label="Clear Filter" @click="resetFilters" />
         <Button variant="subtle" :loading="syncing" label="Sync" @click="syncTests">
           <template #prefix><FeatherIcon name="refresh-cw" class="h-3.5 w-3.5" /></template>
         </Button>
@@ -316,7 +316,7 @@ function restoreFilters() {
     /* ignore */
   }
   // App / Type / DocType-Report persist across reloads; the method search is
-  // intentionally cleared on every fresh load (only "Reset Filters" wipes the rest).
+  // intentionally cleared on every fresh load (only "Clear Filter" wipes the rest).
   filters.search = ''
 }
 function resetFilters() {
