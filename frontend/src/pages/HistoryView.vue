@@ -4,21 +4,19 @@
     <div class="border-b border-outline-gray-2 px-6 py-3">
       <div class="flex flex-wrap items-end gap-3">
         <div>
-          <div class="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-gray-5">App</div>
+          <div class="mb-1 text-xs font-semibold text-ink-gray-5">App</div>
           <Select v-model="filters.app" :options="appOptions" class="min-w-[150px]" />
         </div>
         <div>
-          <div class="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-gray-5">
-            Status
-          </div>
-          <Select v-model="filters.status" :options="statusOptions" class="min-w-[130px]" />
-        </div>
-        <div>
-          <div class="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-gray-5">Type</div>
+          <div class="mb-1 text-xs font-semibold text-ink-gray-5">Type</div>
           <Select v-model="filters.type" :options="typeOptions" class="min-w-[130px]" />
         </div>
         <div>
-          <div class="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-gray-5">
+          <div class="mb-1 text-xs font-semibold text-ink-gray-5">Status</div>
+          <Select v-model="filters.status" :options="statusOptions" class="min-w-[130px]" />
+        </div>
+        <div>
+          <div class="mb-1 text-xs font-semibold text-ink-gray-5">
             Search
           </div>
           <FormControl

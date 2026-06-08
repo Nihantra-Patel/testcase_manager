@@ -2,24 +2,24 @@
   <div class="flex h-full flex-col overflow-hidden">
     <!-- Filter bar -->
     <div
-      class="flex flex-wrap items-end gap-3 border-b border-outline-gray-2 bg-surface-white px-4 py-2.5"
+      class="flex flex-wrap items-end gap-3 border-b border-outline-gray-2 bg-surface-white px-6 py-3"
     >
       <div>
-        <div class="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-gray-5">App</div>
+        <div class="mb-1 text-xs font-semibold text-ink-gray-5">App</div>
         <Select v-model="filters.app" :options="appOptions" class="min-w-[150px]" />
       </div>
       <div>
-        <div class="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-gray-5">Type</div>
+        <div class="mb-1 text-xs font-semibold text-ink-gray-5">Type</div>
         <Select v-model="filters.type" :options="typeOptions" class="min-w-[120px]" />
       </div>
       <div>
-        <div class="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-gray-5">
+        <div class="mb-1 text-xs font-semibold text-ink-gray-5">
           {{ refLabel }}
         </div>
         <Select v-model="filters.ref" :options="refOptions" class="min-w-[200px]" />
       </div>
       <div>
-        <div class="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-gray-5">
+        <div class="mb-1 text-xs font-semibold text-ink-gray-5">
           Search Method
         </div>
         <FormControl
@@ -50,7 +50,7 @@
         <div
           class="flex items-center justify-between border-b border-outline-gray-2 bg-surface-gray-1 px-3 py-1.5"
         >
-          <span class="text-xs font-bold uppercase tracking-wide text-ink-gray-5">Tests</span>
+          <span class="text-xs font-bold text-ink-gray-5">Tests</span>
           <label class="flex cursor-pointer items-center gap-1.5 text-xs">
             <input type="checkbox" :checked="allSelected" @change="toggleAll" />
             Select all
