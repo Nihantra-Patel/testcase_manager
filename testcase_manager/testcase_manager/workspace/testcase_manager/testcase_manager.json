@@ -1,0 +1,65 @@
+{
+ "app": "testcase_manager",
+ "charts": [],
+ "content": "[{\"id\":\"Q68g6uBgkW\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\">Testcase Manager</span>\",\"col\":12}},{\"id\":\"aF_481CX06\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Testcase Manager\",\"col\":3}},{\"id\":\"uoo-6HVhI7\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Testcase\",\"col\":3}},{\"id\":\"ZTt2OvSMzZ\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Testcase Log\",\"col\":3}},{\"id\":\"Ox3Z4Gn7rZ\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Testcase Run\",\"col\":3}}]",
+ "creation": "2026-06-08 11:46:51.310003",
+ "custom_blocks": [],
+ "docstatus": 0,
+ "doctype": "Workspace",
+ "for_user": "",
+ "hide_custom": 0,
+ "icon": "fast-forward",
+ "idx": 0,
+ "indicator_color": "green",
+ "is_hidden": 0,
+ "label": "Testcase Manager",
+ "link_type": "",
+ "links": [],
+ "modified": "2026-06-08 11:58:51.447353",
+ "modified_by": "Administrator",
+ "module": "Testcase Manager",
+ "name": "Testcase Manager",
+ "number_cards": [],
+ "owner": "Administrator",
+ "parent_page": "",
+ "public": 1,
+ "quick_lists": [],
+ "roles": [],
+ "sequence_id": 23.0,
+ "shortcuts": [
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "format": "{} Total",
+   "label": "Testcase",
+   "link_to": "Testcase",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Testcase Log",
+   "link_to": "Testcase Log",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Testcase Manager",
+   "type": "URL",
+   "url": "/testcase_manager"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Testcase Run",
+   "link_to": "Testcase Run",
+   "stats_filter": "[]",
+   "type": "DocType"
+  }
+ ],
+ "title": "Testcase Manager",
+ "type": "Workspace"
+}
