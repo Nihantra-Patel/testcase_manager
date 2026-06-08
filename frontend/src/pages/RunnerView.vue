@@ -149,16 +149,13 @@
             {{ runner.summary.errors }}
           </template>
         </div>
-        <!-- Footer bar — mirrors the left pane's "Run Selected" bar height so the
-             two bottom rows align horizontally. -->
+        <!-- Footer bar — only shown once a run has started; mirrors the left
+             pane's "Run Selected" bar height so the two bottom rows align. -->
         <div
+          v-if="showOpenRun"
           class="flex h-[52px] flex-shrink-0 items-center border-t border-outline-gray-2 px-3.5"
         >
-          <RouterLink
-            v-if="runner.lastRun.value"
-            :to="`/history/${runner.lastRun.value}`"
-            class="text-xs text-ink-blue-3"
-          >
+          <RouterLink :to="`/history/${runner.lastRun.value}`" class="text-xs text-ink-blue-3">
             Open full run →
           </RouterLink>
         </div>
@@ -233,6 +230,12 @@ const statusTheme = computed(() => {
   if (s === 'Stopped') return 'gray'
   return 'orange'
 })
+
+// Show "Open full run" only once a run has actually started streaming output
+// (i.e. there are console lines for a known run), not the instant it's queued.
+const showOpenRun = computed(
+  () => !!runner.lastRun.value && runner.lines.value.length > 0,
+)
 
 // ── Grouping (app › module) ─────────────────────────────────────────────────
 const groupedRecords = computed(() => {
