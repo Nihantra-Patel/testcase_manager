@@ -9,7 +9,7 @@ def sync_after_migrate() -> None:
 		result = discover_all_test_cases()
 		frappe.logger("testcase_manager").info(
 			f"Post-migrate sync: created={result['created']}, "
-			f"updated={result['updated']}, deactivated={result['deactivated']}"
+			f"updated={result['updated']}, deleted={result['deleted']}"
 		)
 	except Exception:
 		frappe.log_error("Testcase Manager post-migrate sync failed")
@@ -23,7 +23,7 @@ def sync_test_cases_daily() -> None:
 		result = discover_all_test_cases()
 		frappe.logger("testcase_manager").info(
 			f"Daily sync: created={result['created']}, "
-			f"updated={result['updated']}, deactivated={result['deactivated']}"
+			f"updated={result['updated']}, deleted={result['deleted']}"
 		)
 	except Exception:
 		frappe.log_error("Testcase Manager daily sync failed")
