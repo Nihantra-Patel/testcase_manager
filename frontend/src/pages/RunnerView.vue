@@ -95,7 +95,9 @@
             </div>
           </template>
         </div>
-        <div class="border-t border-outline-gray-2 p-2">
+        <div
+          class="flex h-[52px] flex-shrink-0 items-center border-t border-outline-gray-2 px-2"
+        >
           <Button
             class="w-full"
             variant="solid"
@@ -147,8 +149,16 @@
             {{ runner.summary.errors }}
           </template>
         </div>
-        <div v-if="runner.lastRun.value" class="flex-shrink-0 px-3.5 py-1.5">
-          <RouterLink :to="`/history/${runner.lastRun.value}`" class="text-xs text-ink-blue-3">
+        <!-- Footer bar — mirrors the left pane's "Run Selected" bar height so the
+             two bottom rows align horizontally. -->
+        <div
+          class="flex h-[52px] flex-shrink-0 items-center border-t border-outline-gray-2 px-3.5"
+        >
+          <RouterLink
+            v-if="runner.lastRun.value"
+            :to="`/history/${runner.lastRun.value}`"
+            class="text-xs text-ink-blue-3"
+          >
             Open full run →
           </RouterLink>
         </div>
