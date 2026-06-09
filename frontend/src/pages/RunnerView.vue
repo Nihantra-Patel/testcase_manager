@@ -30,14 +30,18 @@
         />
       </div>
 
-      <div class="ml-auto flex items-end gap-2">
+      <div>
+        <div class="mb-1 text-xs font-semibold text-ink-gray-5">Mode</div>
         <label
-          class="flex cursor-pointer select-none items-center gap-1.5 self-center text-xs text-ink-gray-6"
+          class="flex h-[28px] cursor-pointer select-none items-center gap-1.5 text-xs text-ink-gray-6"
           title="On: background job with live streaming. Off: inline run, faster, output shown when finished."
         >
-          <input type="checkbox" v-model="realtime" />
+          <input type="checkbox" v-model="realtime" class="tc-checkbox" />
           Realtime run
         </label>
+      </div>
+
+      <div class="ml-auto flex items-end gap-2">
         <span class="self-center text-xs text-ink-gray-5">{{ countLabel }}</span>
         <Button v-if="filters.app" variant="subtle" @click="confirmRunApp">
           <template #prefix><FeatherIcon name="play" class="h-3.5 w-3.5" /></template>
@@ -59,7 +63,7 @@
         >
           <span class="text-xs font-bold text-ink-gray-5">Tests</span>
           <label class="flex cursor-pointer items-center gap-1.5 text-xs">
-            <input type="checkbox" :checked="allSelected" @change="toggleAll" />
+            <input type="checkbox" :checked="allSelected" @change="toggleAll" class="tc-checkbox" />
             Select all
           </label>
         </div>
@@ -84,7 +88,7 @@
                   type="checkbox"
                   :value="tc.name"
                   v-model="selected"
-                  class="flex-shrink-0"
+                  class="tc-checkbox flex-shrink-0"
                 />
                 <div class="min-w-0 flex-1 cursor-pointer" @click="toggleOne(tc.name)">
                   <div class="truncate text-sm font-semibold">{{ tc.test_method }}</div>
@@ -419,3 +423,9 @@ nextTick(() => {
   restoring = false
 })
 </script>
+
+<style scoped>
+.tc-checkbox {
+  border-radius: 5px;
+}
+</style>
