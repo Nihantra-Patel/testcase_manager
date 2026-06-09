@@ -1,7 +1,7 @@
 <template>
   <div class="flex h-full flex-col overflow-hidden">
     <!-- Filters -->
-    <div class="border-b border-outline-gray-2 px-6 py-3">
+    <div class="border-b border-outline-gray-2 px-8 py-3">
       <div class="flex flex-wrap items-end gap-3">
         <div>
           <div class="mb-1 text-xs font-semibold text-ink-gray-5">App</div>
@@ -36,39 +36,63 @@
     </div>
 
     <!-- Table (flex-based list so columns align and the Action hugs the right) -->
-    <div class="flex-1 overflow-y-auto px-6">
+    <div class="flex-1 overflow-y-auto">
       <!-- Header -->
       <div
-        class="sticky top-0 z-[1] flex items-center border-b border-outline-gray-2 bg-surface-white py-2 text-xs font-semibold text-ink-gray-5"
+        class="sticky top-0 z-[1] flex items-center border-b border-outline-gray-2 bg-surface-white px-8 py-2.5 text-xs font-semibold text-ink-gray-5"
       >
-        <span class="w-[22%] min-w-[160px] pr-4">Test</span>
-        <span class="w-[10%] min-w-[80px] pr-4">App</span>
-        <span class="w-[10%] min-w-[80px] pr-4">Scope</span>
-        <span class="w-[12%] min-w-[90px] pr-4">Type</span>
-        <span class="w-[10%] min-w-[90px] pr-4">Status</span>
-        <span class="w-[10%] min-w-[80px] pr-4">Duration</span>
-        <span class="flex-1 pr-4">When</span>
-        <span class="w-[110px] flex-shrink-0 text-right">Action</span>
+        <span class="flex-1 min-w-[200px] pr-4">Test</span>
+        <span class="w-[100px] flex-shrink-0 pr-4">App</span>
+        <span class="w-[90px] flex-shrink-0 pr-4">Scope</span>
+        <span class="w-[110px] flex-shrink-0 pr-4">Type</span>
+        <span class="w-[120px] flex-shrink-0 pr-4">Status</span>
+        <span class="w-[130px] flex-shrink-0 pr-4">Start Time</span>
+        <span class="w-[130px] flex-shrink-0 pr-4">End Time</span>
+        <span class="w-[90px] flex-shrink-0 pr-4 text-right">Duration</span>
+        <span class="w-[56px] flex-shrink-0 text-right">Action</span>
       </div>
       <!-- Rows -->
       <div
         v-for="r in runs.data || []"
         :key="r.name"
-        class="flex cursor-pointer items-center border-b border-outline-gray-1 py-2 text-sm hover:bg-surface-gray-2"
+        class="flex cursor-pointer items-center border-b border-outline-gray-1 px-8 py-2.5 text-sm transition-colors hover:bg-surface-gray-2"
         @click="$router.push(`/history/${r.name}`)"
       >
-        <span class="w-[22%] min-w-[160px] truncate pr-4">{{ r.test_method }}</span>
-        <span class="w-[10%] min-w-[80px] truncate pr-4">{{ r.app }}</span>
-        <span class="w-[10%] min-w-[80px] truncate pr-4">{{ r.run_scope }}</span>
-        <span class="w-[12%] min-w-[90px] truncate pr-4">{{ r.reference_type || '—' }}</span>
-        <span class="w-[10%] min-w-[90px] pr-4">
-          <Badge :theme="theme(r.status)" :label="r.status" />
+        <span class="flex-1 min-w-[200px] truncate pr-4 font-medium text-ink-gray-9">
+          {{ r.test_method }}
         </span>
-        <span class="w-[10%] min-w-[80px] pr-4">{{ r.duration ? r.duration + 's' : '—' }}</span>
-        <span class="flex-1 truncate pr-4 text-ink-gray-5">{{ r.creation }}</span>
-        <span class="w-[110px] flex-shrink-0 text-right">
-          <Button variant="subtle" size="sm" label="Preview" @click.stop="openPreview(r)">
-            <template #prefix><FeatherIcon name="eye" class="h-3.5 w-3.5" /></template>
+        <span class="w-[100px] flex-shrink-0 truncate pr-4 text-ink-gray-6">{{ r.app }}</span>
+        <span class="w-[90px] flex-shrink-0 truncate pr-4 text-ink-gray-6">
+          {{ r.run_scope }}
+        </span>
+        <span class="w-[110px] flex-shrink-0 truncate pr-4 text-ink-gray-6">
+          {{ r.reference_type || '—' }}
+        </span>
+        <span class="w-[120px] flex-shrink-0 pr-4">
+          <Badge :theme="theme(r.status)" :label="r.status">
+            <template #prefix>
+              <span class="mr-1">{{ statusIcon(r.status) }}</span>
+            </template>
+          </Badge>
+        </span>
+        <span
+          class="w-[130px] flex-shrink-0 truncate pr-4 text-ink-gray-6"
+          :title="r.start_time"
+        >
+          {{ dateTime(r.start_time) }}
+        </span>
+        <span
+          class="w-[130px] flex-shrink-0 truncate pr-4 text-ink-gray-6"
+          :title="r.end_time"
+        >
+          {{ dateTime(r.end_time) }}
+        </span>
+        <span class="w-[90px] flex-shrink-0 pr-4 text-right tabular-nums text-ink-gray-7">
+          {{ r.duration ? r.duration + 's' : '—' }}
+        </span>
+        <span class="w-[56px] flex-shrink-0 text-right">
+          <Button variant="ghost" size="sm" @click.stop="openPreview(r)">
+            <template #icon><FeatherIcon name="eye" class="h-4 w-4" /></template>
           </Button>
         </span>
       </div>
@@ -79,7 +103,7 @@
 
     <!-- Bottom bar — page-size pills (left) + count and Load more (right) -->
     <div
-      class="flex flex-shrink-0 items-center justify-between border-t border-outline-gray-2 px-6 py-2"
+      class="flex flex-shrink-0 items-center justify-between border-t border-outline-gray-2 px-8 py-2"
     >
       <div class="flex items-center gap-1">
         <button
@@ -236,6 +260,8 @@ const runs = createListResource({
     'run_scope',
     'status',
     'duration',
+    'start_time',
+    'end_time',
     'creation',
     'reference_type',
   ],
@@ -314,6 +340,23 @@ function theme(status) {
   if (status === 'Failed' || status === 'Error') return 'red'
   if (status === 'Running' || status === 'Pending') return 'orange'
   return 'gray' // Stopped, etc.
+}
+
+function statusIcon(status) {
+  if (status === 'Passed') return '✓'
+  if (status === 'Failed' || status === 'Error') return '✕'
+  if (status === 'Running' || status === 'Pending') return '⟳'
+  return '■' // Stopped, etc.
+}
+
+// Compact full date-time, e.g. "09 Jun, 3:49 PM". Full value stays in the title.
+function dateTime(value) {
+  if (!value) return '—'
+  const d = new Date(value.replace(' ', 'T'))
+  if (isNaN(d)) return '—'
+  const date = d.toLocaleDateString(undefined, { day: '2-digit', month: 'short' })
+  const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+  return `${date}, ${time}`
 }
 
 async function loadApps() {

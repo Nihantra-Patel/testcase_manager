@@ -2,7 +2,7 @@
   <div class="flex h-full flex-col overflow-hidden">
     <!-- Filter bar -->
     <div
-      class="flex flex-wrap items-end gap-3 border-b border-outline-gray-2 bg-surface-white px-6 py-3"
+      class="flex flex-wrap items-end gap-3 border-b border-outline-gray-2 bg-surface-white px-8 py-3"
     >
       <div>
         <div class="mb-1 text-xs font-semibold text-ink-gray-5">App</div>
