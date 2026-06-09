@@ -26,3 +26,10 @@ body,
   background-color: #ffffff !important;
   border-color: #ffffff !important;
 }
+
+/* The frappe-ui Dialog overlay teleports to <body> but ships without an explicit
+   z-index, so a sticky page header (even at a low z) can paint over it. Force the
+   modal layer above all page chrome. */
+.dialog-overlay {
+  z-index: 1000 !important;
+}
