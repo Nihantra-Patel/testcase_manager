@@ -31,6 +31,13 @@
       </div>
 
       <div class="ml-auto flex items-end gap-2">
+        <label
+          class="flex cursor-pointer select-none items-center gap-1.5 self-center text-xs text-ink-gray-6"
+          title="On: background job with live streaming. Off: inline run, faster, output shown when finished."
+        >
+          <input type="checkbox" v-model="realtime" />
+          Realtime run
+        </label>
         <span class="self-center text-xs text-ink-gray-5">{{ countLabel }}</span>
         <Button v-if="filters.app" variant="subtle" @click="confirmRunApp">
           <template #prefix><FeatherIcon name="play" class="h-3.5 w-3.5" /></template>
@@ -87,7 +94,7 @@
                   variant="solid"
                   size="sm"
                   :disabled="runner.isRunning.value"
-                  @click="runner.runOne(tc.name, tc.test_method)"
+                  @click="runner.runOne(tc.name, tc.test_method, realtime)"
                 >
                   <FeatherIcon name="play" class="h-3 w-3" />
                 </Button>
@@ -189,6 +196,9 @@ const runner = useTestRunner()
 onBeforeUnmount(() => runner.dispose())
 
 const filters = reactive({ app: '', type: '', ref: '', search: '' })
+// Realtime ON  → background job with live streaming (default).
+// Realtime OFF → inline run, faster, output shown at completion.
+const realtime = ref(true)
 const records = ref([])
 const total = ref(0)
 const selected = ref([])
@@ -304,14 +314,16 @@ async function loadRefOptions() {
 // ── Filter persistence ──────────────────────────────────────────────────────
 function saveFilters() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(filters))
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...filters, realtime: realtime.value }))
   } catch (e) {
     /* ignore */
   }
 }
 function restoreFilters() {
   try {
-    Object.assign(filters, JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'))
+    const s = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
+    if (typeof s.realtime === 'boolean') realtime.value = s.realtime
+    Object.assign(filters, { app: s.app, type: s.type, ref: s.ref, search: s.search })
   } catch (e) {
     /* ignore */
   }
@@ -324,6 +336,7 @@ function resetFilters() {
   filters.type = ''
   filters.ref = ''
   filters.search = ''
+  realtime.value = true
   try {
     localStorage.removeItem(STORAGE_KEY)
   } catch (e) {
@@ -351,10 +364,11 @@ watch(
     queueQuery()
   },
 )
+watch(realtime, saveFilters)
 
 // ── Actions ─────────────────────────────────────────────────────────────────
 function runSelected() {
-  runner.runSelected(selected.value, records.value)
+  runner.runSelected(selected.value, records.value, realtime.value)
 }
 function confirmRunApp() {
   showRunAppDialog.value = true

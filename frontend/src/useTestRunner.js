@@ -132,48 +132,72 @@ function createRunner() {
   }
 
   // ── Run actions ───────────────────────────────────────────────────────────
-  async function runOne(testCaseName, label) {
+  // Render a finished inline run from the API response (background=0): there is
+  // no realtime stream, so the full output and summary arrive all at once.
+  function renderInline(result) {
+    if (stopped) return
+    if (result.full_output) {
+      lines.value = []
+      result.full_output.split('\n').forEach(appendLine)
+    }
+    if (session) {
+      session.passed += result.passed || 0
+      session.failed += result.failed || 0
+      session.errors += result.errors || 0
+    }
+    if (result.duration) appendLine(`Duration: ${result.duration}s`)
+    renderSummary(result.status)
+    if (result.log_name) logName.value = result.log_name
+    endSession()
+  }
+
+  async function runOne(testCaseName, label, realtime = true) {
     startSession(label)
     status.value = 'Running'
     appendLine(`▶ Running test: ${label}`)
+    if (!realtime) appendLine('Running inline — output appears when finished…')
     appendLine('')
     try {
-      // Background → the worker streams per-test progress in realtime, the same
-      // as batch runs. (Inline would block the request and dump all output at end.)
-      const res = await api.runTestCase(testCaseName, 'Method', 1)
+      // Realtime → background job, worker streams per-test progress live.
+      // Inline (realtime off) → blocks the request, output returned at the end.
+      const res = await api.runTestCase(testCaseName, 'Method', realtime ? 1 : 0)
       lastRun.value = res.run_name
-      subscribe(res.run_name)
+      if (realtime) subscribe(res.run_name)
+      else renderInline(res.result || {})
     } catch (e) {
       appendLine('✖ Failed to start the test (API error).')
       endSession()
     }
   }
 
-  async function runBatch(names) {
+  async function runBatch(names, realtime = true) {
     startSession(`${names.length} tests (batch)`)
     status.value = 'Running'
     appendLine(`▶ Running ${names.length} tests together (one shared setup)`)
-    appendLine('Please wait — test environment is being prepared…')
+    appendLine(
+      realtime
+        ? 'Please wait — test environment is being prepared…'
+        : 'Running inline — output appears when finished…',
+    )
     appendLine('')
     try {
-      // Always background → the worker publishes output test-by-test in realtime.
-      // (Running inline would block the request and deliver all output at once.)
-      const res = await api.runTestBatch(names, 1)
+      const res = await api.runTestBatch(names, realtime ? 1 : 0)
       lastRun.value = res.run_name
-      subscribe(res.run_name)
+      if (realtime) subscribe(res.run_name)
+      else renderInline(res.result || {})
     } catch (e) {
       appendLine('✖ Failed to start the batch (API error).')
       endSession()
     }
   }
 
-  function runSelected(names, records) {
+  function runSelected(names, records, realtime = true) {
     if (!names.length) return
     if (names.length === 1) {
       const rec = records.find((r) => r.name === names[0])
-      return runOne(names[0], rec?.test_method || names[0])
+      return runOne(names[0], rec?.test_method || names[0], realtime)
     }
-    return runBatch(names)
+    return runBatch(names, realtime)
   }
 
   async function runEntireApp(app) {
