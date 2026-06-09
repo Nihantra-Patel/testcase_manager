@@ -7,3 +7,22 @@ body,
 #app {
   height: 100%;
 }
+
+/* Black-and-white checkboxes. The base (Tailwind forms) fills a checked box with
+   `currentColor`, defaulting to blue — override `color` to ink instead. The dark
+   theme already supplies a dark check glyph, so we only set the fill here. */
+.tc-checkbox {
+  border-radius: 5px;
+}
+.tc-checkbox:checked,
+.tc-checkbox:indeterminate {
+  color: #1f272e !important; /* ink-gray-9 → black fill (light mode) */
+  background-color: #1f272e !important;
+  border-color: #1f272e !important;
+}
+[data-theme='dark'] .tc-checkbox:checked,
+[data-theme='dark'] .tc-checkbox:indeterminate {
+  color: #ffffff !important; /* white fill on dark, with the dark base glyph */
+  background-color: #ffffff !important;
+  border-color: #ffffff !important;
+}

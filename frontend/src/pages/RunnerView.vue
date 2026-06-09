@@ -424,8 +424,3 @@ nextTick(() => {
 })
 </script>
 
-<style scoped>
-.tc-checkbox {
-  border-radius: 5px;
-}
-</style>
