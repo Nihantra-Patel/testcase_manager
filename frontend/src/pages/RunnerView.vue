@@ -166,7 +166,10 @@
           v-if="showOpenRun"
           class="flex h-[52px] flex-shrink-0 items-center border-t border-outline-gray-2 px-3.5"
         >
-          <RouterLink :to="`/history/${runner.lastRun.value}`" class="text-xs text-ink-blue-3">
+          <RouterLink
+            :to="`/history/${runner.lastRun.value}`"
+            class="text-xs font-medium text-ink-gray-7 underline underline-offset-2 hover:text-ink-gray-9"
+          >
             Open full run →
           </RouterLink>
         </div>
