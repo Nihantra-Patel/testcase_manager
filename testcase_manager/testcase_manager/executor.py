@@ -25,6 +25,11 @@ def _strip_ansi(text: str) -> str:
 	return _ANSI_RE.sub("", text or "")
 
 
+def _sum_exec_time(all_results: list) -> float:
+	"""Actual test execution time across suites (the unittest 'Ran in' window)."""
+	return round(sum(getattr(r, "_tc_exec_time", 0) or 0 for r in all_results), 3)
+
+
 # ---------------------------------------------------------------------------
 # Realtime output stream
 # ---------------------------------------------------------------------------
@@ -131,6 +136,7 @@ def execute_test_case_job(run_name: str) -> None:
 
 		stream.flush()
 		duration = round(time.monotonic() - start_ts, 3)
+		exec_time = _sum_exec_time(all_results)
 		full_output = stream.getvalue()
 
 		total_passed = sum(r.testsRun - len(r.failures) - len(r.errors) for r in all_results)
@@ -157,6 +163,7 @@ def execute_test_case_job(run_name: str) -> None:
 				"status": status,
 				"end_time": now_datetime(),
 				"duration": duration,
+				"exec_time": exec_time,
 				"result": result_summary,
 				"full_output": full_output,
 				"traceback": traceback_text,
@@ -259,6 +266,7 @@ def execute_test_batch_job(run_name: str, test_cases: list[str]) -> None:
 
 		stream.flush()
 		duration = round(time.monotonic() - start_ts, 3)
+		exec_time = _sum_exec_time(all_results)
 		full_output = stream.getvalue()
 
 		total_passed = sum(r.testsRun - len(r.failures) - len(r.errors) for r in all_results)
@@ -284,6 +292,7 @@ def execute_test_batch_job(run_name: str, test_cases: list[str]) -> None:
 				"status": status,
 				"end_time": now_datetime(),
 				"duration": duration,
+				"exec_time": exec_time,
 				"result": result_summary,
 				"full_output": full_output,
 				"traceback": traceback_text,
@@ -470,7 +479,11 @@ def _drive_runner(runner, stream: "RealtimeLineStream") -> list:
 		for app_name, category, suite in runner.iterRun():
 			count = suite.countTestCases()
 			stream.write(f"\nRunning {count} {category} tests for {app_name}\n\n")
+			# Wall-clock around just the suite run = unittest's "Ran N tests in X.Xs"
+			# (the actual test execution time, excluding env setup/teardown).
+			_run_start = time.monotonic()
 			result = runner.run(suite)
+			result._tc_exec_time = time.monotonic() - _run_start
 			results.append(result)
 
 			# Safety fallback: if errors/failures weren't captured via click.echo,

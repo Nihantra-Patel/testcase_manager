@@ -46,9 +46,14 @@
         <span class="w-[90px] flex-shrink-0 pr-4">Scope</span>
         <span class="w-[110px] flex-shrink-0 pr-4">Type</span>
         <span class="w-[120px] flex-shrink-0 pr-4">Status</span>
-        <span class="w-[130px] flex-shrink-0 pr-4">Start Time</span>
-        <span class="w-[130px] flex-shrink-0 pr-4">End Time</span>
-        <span class="w-[90px] flex-shrink-0 pr-4 text-right">Duration</span>
+        <span class="w-[120px] flex-shrink-0 pr-4">Start Time</span>
+        <span class="w-[120px] flex-shrink-0 pr-4">End Time</span>
+        <span class="w-[90px] flex-shrink-0 pr-4 text-right" title="Actual test execution time">
+          Test Time
+        </span>
+        <span class="w-[90px] flex-shrink-0 pr-4 text-right" title="Total process time">
+          Total
+        </span>
         <span class="w-[56px] flex-shrink-0 text-right">Action</span>
       </div>
       <!-- Rows -->
@@ -76,22 +81,31 @@
           </Badge>
         </span>
         <span
-          class="w-[130px] flex-shrink-0 truncate pr-4 text-ink-gray-6"
+          class="w-[120px] flex-shrink-0 truncate pr-4 text-ink-gray-6"
           :title="r.start_time"
         >
           {{ dateTime(r.start_time) }}
         </span>
         <span
-          class="w-[130px] flex-shrink-0 truncate pr-4 text-ink-gray-6"
+          class="w-[120px] flex-shrink-0 truncate pr-4 text-ink-gray-6"
           :title="r.end_time"
         >
           {{ dateTime(r.end_time) }}
         </span>
         <span class="w-[90px] flex-shrink-0 pr-4 text-right tabular-nums text-ink-gray-7">
+          {{ r.exec_time ? r.exec_time + 's' : '—' }}
+        </span>
+        <span class="w-[90px] flex-shrink-0 pr-4 text-right tabular-nums text-ink-gray-7">
           {{ r.duration ? r.duration + 's' : '—' }}
         </span>
         <span class="w-[56px] flex-shrink-0 text-right">
-          <Button variant="ghost" size="sm" @click.stop="openPreview(r)">
+          <Button
+            variant="ghost"
+            size="sm"
+            :disabled="isRunningStatus(r.status)"
+            :title="isRunningStatus(r.status) ? 'Run in progress' : 'Preview output'"
+            @click.stop="openPreview(r)"
+          >
             <template #icon><FeatherIcon name="eye" class="h-4 w-4" /></template>
           </Button>
         </span>
@@ -260,6 +274,7 @@ const runs = createListResource({
     'run_scope',
     'status',
     'duration',
+    'exec_time',
     'start_time',
     'end_time',
     'creation',
@@ -340,6 +355,10 @@ function theme(status) {
   if (status === 'Failed' || status === 'Error') return 'red'
   if (status === 'Running' || status === 'Pending') return 'orange'
   return 'gray' // Stopped, etc.
+}
+
+function isRunningStatus(status) {
+  return status === 'Running' || status === 'Pending'
 }
 
 function statusIcon(status) {
