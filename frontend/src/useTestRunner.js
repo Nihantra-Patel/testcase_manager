@@ -26,6 +26,9 @@ function createRunner() {
   const logName = ref(null)
   const isRunning = ref(false)
   const summary = reactive({ show: false, ok: true, stopped: false, passed: 0, failed: 0, errors: 0 })
+  // Live progress while a run streams: how many tests have finished vs the total
+  // the run was started with. `total` is 0 when unknown (e.g. whole-app runs).
+  const progress = reactive({ done: 0, total: 0 })
 
   let stopped = false
   let session = null
@@ -45,8 +48,14 @@ function createRunner() {
   }
 
   // ── Realtime ──────────────────────────────────────────────────────────────
+  // A finished-test line looks like "   ✔ test_name (1.2s)" / "✖ …" / "= …".
+  // The "▸ running …" line marks a *start*, so it's deliberately excluded.
+  const DONE_LINE = /^\s*[✔✖=xu]\s/
+
   function onOutput(data) {
     if (data.run_name !== currentRun.value) return
+    const text = stripAnsi(data.line ?? '')
+    if (DONE_LINE.test(text)) progress.done += 1
     appendLine(data.line)
   }
   function onCompleted(data) {
@@ -69,10 +78,12 @@ function createRunner() {
   }
 
   // ── Session lifecycle ───────────────────────────────────────────────────
-  function startSession(label) {
+  function startSession(label, total = 0) {
     clearConsole()
     stopped = false
     session = { active: true, passed: 0, failed: 0, errors: 0 }
+    progress.done = 0
+    progress.total = total
     isRunning.value = true
     runLabel.value = label
     status.value = 'Queuing…'
@@ -152,7 +163,7 @@ function createRunner() {
   }
 
   async function runOne(testCaseName, label, realtime = true) {
-    startSession(label)
+    startSession(label, 1)
     status.value = 'Running'
     appendLine(`▶ Running test: ${label}`)
     if (!realtime) appendLine('Running inline — output appears when finished…')
@@ -171,7 +182,7 @@ function createRunner() {
   }
 
   async function runBatch(names, realtime = true) {
-    startSession(`${names.length} tests (batch)`)
+    startSession(`${names.length} tests (batch)`, names.length)
     status.value = 'Running'
     appendLine(`▶ Running ${names.length} tests together (one shared setup)`)
     appendLine(
@@ -250,6 +261,7 @@ function createRunner() {
     logName,
     isRunning,
     summary,
+    progress,
     clearConsole,
     runOne,
     runSelected,

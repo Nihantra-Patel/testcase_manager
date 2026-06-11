@@ -164,7 +164,7 @@
              pane's "Run Selected" bar height so the two bottom rows align. -->
         <div
           v-if="showOpenRun"
-          class="flex h-[52px] flex-shrink-0 items-center border-t border-outline-gray-2 px-3.5"
+          class="flex h-[52px] flex-shrink-0 items-center justify-between border-t border-outline-gray-2 px-3.5"
         >
           <RouterLink
             :to="`/history/${runner.lastRun.value}`"
@@ -172,6 +172,9 @@
           >
             Open full run →
           </RouterLink>
+          <span v-if="progressLabel" class="text-xs font-medium text-ink-gray-6 tabular-nums">
+            {{ progressLabel }}
+          </span>
         </div>
       </div>
     </div>
@@ -253,6 +256,15 @@ const statusTheme = computed(() => {
 const showOpenRun = computed(
   () => !!runner.lastRun.value && runner.lines.value.length > 0,
 )
+
+// Live "done / total" while a run streams; after it finishes, show the final tally.
+const progressLabel = computed(() => {
+  const { done, total } = runner.progress
+  if (runner.isRunning.value) {
+    return total ? `${done} / ${total} tests` : `${done} tests run…`
+  }
+  return done ? `${done}${total ? ` / ${total}` : ''} tests` : ''
+})
 
 // ── Grouping (app › module) ─────────────────────────────────────────────────
 const groupedRecords = computed(() => {
