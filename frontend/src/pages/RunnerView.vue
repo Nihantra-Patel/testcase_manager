@@ -426,12 +426,26 @@ async function loadApps() {
   apps.value = (await api.getInstalledApps()) || []
 }
 
+// After a page reload, reconnect to a run that's still in progress so the
+// console shows the whole process instead of going blank. Skip if the in-memory
+// runner is already streaming (navigated back without a reload).
+async function resumeActiveRun() {
+  if (runner.isRunning.value || runner.lines.value.length) return
+  try {
+    const active = await api.getActiveRun()
+    if (active) runner.resume(active)
+  } catch (e) {
+    /* best effort */
+  }
+}
+
 // ── Init ────────────────────────────────────────────────────────────────────
 restoring = true
 restoreFilters()
 loadApps()
 loadRefOptions()
 doQuery()
+resumeActiveRun()
 // Release the guard after Vue has flushed the watchers triggered by the restore,
 // so subsequent user changes to App/Type still reset the ref as expected.
 nextTick(() => {

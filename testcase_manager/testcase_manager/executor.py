@@ -30,6 +30,27 @@ def _sum_exec_time(all_results: list) -> float:
 	return round(sum(getattr(r, "_tc_exec_time", 0) or 0 for r in all_results), 3)
 
 
+def _ensure_scheduler_enabled() -> None:
+	"""
+	Always re-enable the scheduler after a run.
+
+	Frappe's test environment disables the scheduler during a run and only
+	re-enables it in ``_cleanup_after_tests`` — which is skipped if the run errors
+	before tests start, and relies on a module-global that can get stuck across
+	runs in a long-lived RQ worker. So a test run can leave the scheduler
+	disabled. We unconditionally turn it back on here (this site keeps the
+	scheduler on), so it's never left inactive after a run.
+	"""
+	try:
+		import frappe.utils.scheduler as _sched
+
+		if _sched.is_scheduler_disabled(verbose=False):
+			_sched.enable_scheduler()
+			frappe.db.commit()
+	except Exception:
+		frappe.log_error("Testcase Manager: failed to re-enable scheduler")
+
+
 # ---------------------------------------------------------------------------
 # Realtime output stream
 # ---------------------------------------------------------------------------
@@ -236,6 +257,8 @@ def execute_test_case_job(run_name: str) -> None:
 				"traceback": err_text,
 			},
 		)
+	finally:
+		_ensure_scheduler_enabled()
 
 
 def execute_test_batch_job(run_name: str, test_cases: list[str]) -> None:
@@ -356,6 +379,8 @@ def execute_test_batch_job(run_name: str, test_cases: list[str]) -> None:
 			"test_completed",
 			{"run_name": run_name, "status": "Error", "error": str(exc), "full_output": full_output},
 		)
+	finally:
+		_ensure_scheduler_enabled()
 
 
 # ---------------------------------------------------------------------------

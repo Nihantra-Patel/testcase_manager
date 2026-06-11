@@ -427,3 +427,22 @@ def get_run_count(filters: str | dict | None = None) -> dict:
 		filters = json.loads(filters or "{}")
 
 	return {"count": frappe.db.count("Testcase Run", filters=dict(filters or {}))}
+
+
+@frappe.whitelist()
+def get_active_run() -> dict | None:
+	"""
+	The most recent still-in-progress run (status Running/Pending), if any.
+
+	Lets the UI reconnect and resume streaming after a page reload — it returns
+	the run name, its label, and the output already saved so the console can be
+	seeded before live events take over.
+	"""
+	rows = frappe.get_all(
+		"Testcase Run",
+		filters={"status": ["in", ["Running", "Pending"]]},
+		fields=["name", "test_method", "status", "full_output"],
+		order_by="creation desc",
+		limit=1,
+	)
+	return rows[0] if rows else None

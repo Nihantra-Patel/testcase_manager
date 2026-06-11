@@ -227,6 +227,24 @@ function createRunner() {
     }
   }
 
+  // Reconnect to a run that's still in progress (e.g. after a page reload):
+  // seed the console from its saved output and subscribe for further events.
+  // No-op if we're already streaming this run.
+  function resume(run) {
+    if (!run || !run.name) return
+    if (currentRun.value === run.name || lastRun.value === run.name) return
+    startSession(run.test_method || run.name)
+    status.value = 'Running'
+    const seed = (run.full_output || '').split('\n')
+    if (seed.length === 1 && seed[0] === '') seed.length = 0
+    seed.forEach((text) => {
+      if (DONE_LINE.test(stripAnsi(text))) progress.done += 1
+      appendLine(text)
+    })
+    lastRun.value = run.name
+    subscribe(run.name)
+  }
+
   async function stop() {
     stopped = true
     const running = currentRun.value
@@ -263,6 +281,7 @@ function createRunner() {
     summary,
     progress,
     clearConsole,
+    resume,
     runOne,
     runSelected,
     runEntireApp,

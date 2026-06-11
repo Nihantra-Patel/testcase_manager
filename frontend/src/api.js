@@ -16,4 +16,5 @@ export const api = {
     call(`${M}.stop_run`, { run_name, partial_output }),
   syncTestCases: (args) => call(`${M}.sync_test_cases`, args),
   getRunCount: (filters) => call(`${M}.get_run_count`, { filters: JSON.stringify(filters || {}) }),
+  getActiveRun: () => call(`${M}.get_active_run`),
 }
