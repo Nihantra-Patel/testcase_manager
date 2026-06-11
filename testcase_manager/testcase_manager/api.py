@@ -377,30 +377,39 @@ def get_installed_apps_list() -> list[str]:
 
 
 @frappe.whitelist()
-def get_reference_options(app: str | None = None, reference_type: str | None = None) -> list[str]:
+def get_reference_options(app: str | None = None, reference_type: str | None = None) -> list[dict]:
 	"""
-	Return the distinct DocType (or Report) names that actually have test cases,
-	optionally scoped to a single app.
+	Return the distinct references (DocTypes and/or Reports) that actually have
+	test cases, optionally scoped to a single app.
+
+	Each item is ``{"value": name, "type": "DocType"|"Report"}``. When
+	``reference_type`` is empty (the "All Types" filter), both DocTypes and Reports
+	are returned so the dropdown isn't limited to DocTypes.
 
 	Used by the Test Runner's DocType/Report filter so it only offers references
 	relevant to the selected app — not every DocType/Report on the site.
 	"""
-	filters: dict = {"status": "Active"}
-	if app and app.strip():
-		filters["app"] = app.strip()
+	rtype = (reference_type or "").strip()
 
-	field = "report" if (reference_type or "").strip() == "Report" else "reference_doctype"
-	if (reference_type or "").strip():
-		filters["reference_type"] = reference_type.strip()
+	def _names(field: str, type_value: str) -> list[dict]:
+		filters: dict = {"status": "Active", "reference_type": type_value}
+		if app and app.strip():
+			filters["app"] = app.strip()
+		values = frappe.get_all(
+			"Testcase",
+			filters=filters,
+			distinct=True,
+			pluck=field,
+			order_by=f"{field} asc",
+		)
+		return [{"value": v, "type": type_value} for v in values if v]
 
-	values = frappe.get_all(
-		"Testcase",
-		filters=filters,
-		distinct=True,
-		pluck=field,
-		order_by=f"{field} asc",
-	)
-	return [v for v in values if v]
+	if rtype == "Report":
+		return _names("report", "Report")
+	if rtype == "DocType":
+		return _names("reference_doctype", "DocType")
+	# All Types → both, DocTypes first then Reports.
+	return _names("reference_doctype", "DocType") + _names("report", "Report")
 
 
 @frappe.whitelist()

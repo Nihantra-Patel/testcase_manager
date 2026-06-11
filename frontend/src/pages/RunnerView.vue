@@ -235,12 +235,31 @@ const typeOptions = [
   { label: 'DocType', value: 'DocType' },
   { label: 'Report', value: 'Report' },
 ]
+// refValues holds { value, type } objects so a reference picked under "All Types"
+// still knows whether it's a DocType or a Report.
+const refAllLabel = computed(() =>
+  filters.type === 'Report'
+    ? 'All Reports'
+    : filters.type === 'DocType'
+    ? 'All DocTypes'
+    : 'All DocTypes/Reports',
+)
 const refOptions = computed(() => [
-  { label: filters.type === 'Report' ? 'All Reports' : 'All DocTypes', value: '' },
-  ...refValues.value.map((r) => ({ label: r, value: r })),
+  { label: refAllLabel.value, value: '' },
+  ...refValues.value.map((r) => ({
+    // Under "All Types", suffix the kind so a DocType and a Report of the same
+    // name are distinguishable.
+    label: filters.type ? r.value : `${r.value} · ${r.type}`,
+    value: r.value,
+  })),
 ])
 const refLabel = computed(() =>
   filters.type === 'Report' ? 'Report' : filters.type === 'DocType' ? 'DocType' : 'DocType / Report',
+)
+// The type of the currently selected reference (for routing the query when the
+// Type filter is "All Types").
+const selectedRefType = computed(
+  () => refValues.value.find((r) => r.value === filters.ref)?.type || '',
 )
 
 // ── Saved record link helper ────────────────────────────────────────────────
@@ -320,8 +339,13 @@ async function doQuery() {
     search: filters.search.trim(),
     page_size: 10000,
   }
-  if (filters.type === 'Report') args.report = filters.ref
-  else args.reference_doctype = filters.ref
+  if (filters.ref) {
+    // Route the selected reference by its real kind — under "All Types" the type
+    // comes from the option, otherwise from the Type filter.
+    const kind = filters.type || selectedRefType.value
+    if (kind === 'Report') args.report = filters.ref
+    else args.reference_doctype = filters.ref
+  }
   try {
     const res = await api.getTestCases(args)
     records.value = res.records || []
@@ -411,7 +435,8 @@ async function syncTests() {
   syncing.value = true
   const args = { app: filters.app }
   if (filters.app) {
-    if (filters.type) args.reference_type = filters.type
+    const kind = filters.type || selectedRefType.value
+    if (kind) args.reference_type = kind
     if (filters.ref) args.reference = filters.ref
   }
   try {
