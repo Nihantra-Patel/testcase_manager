@@ -4,21 +4,21 @@
     <div
       class="flex flex-wrap items-end gap-3 border-b border-outline-gray-2 bg-surface-white px-8 py-3"
     >
-      <div>
+      <div class="w-[150px]">
         <div class="mb-1 text-xs font-semibold text-ink-gray-5">App</div>
-        <Select v-model="filters.app" :options="appOptions" class="min-w-[150px]" />
+        <Select v-model="filters.app" :options="appOptions" class="w-full" />
       </div>
-      <div>
+      <div class="w-[130px]">
         <div class="mb-1 text-xs font-semibold text-ink-gray-5">Type</div>
-        <Select v-model="filters.type" :options="typeOptions" class="min-w-[120px]" />
+        <Select v-model="filters.type" :options="typeOptions" class="w-full" />
       </div>
-      <div>
-        <div class="mb-1 text-xs font-semibold text-ink-gray-5">
+      <div class="w-[220px]">
+        <div class="mb-1 truncate text-xs font-semibold text-ink-gray-5">
           {{ refLabel }}
         </div>
-        <Select v-model="filters.ref" :options="refOptions" class="min-w-[200px]" />
+        <Select v-model="filters.ref" :options="refOptions" class="w-full" />
       </div>
-      <div>
+      <div class="w-[200px]">
         <div class="mb-1 text-xs font-semibold text-ink-gray-5">
           Search Method
         </div>
@@ -26,7 +26,7 @@
           v-model="filters.search"
           type="text"
           placeholder="test_method_name…"
-          class="min-w-[180px]"
+          class="w-full"
         />
       </div>
 

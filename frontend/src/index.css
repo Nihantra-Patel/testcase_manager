@@ -33,3 +33,15 @@ body,
 .dialog-overlay {
   z-index: 1000 !important;
 }
+
+/* Select dropdown popovers grow to fit the longest option, which with long
+   DocType/Report names overflows over neighbouring fields. Cap the popover width
+   and truncate each option so the filter bar layout stays stable. */
+[role='listbox'] {
+  max-width: 360px;
+}
+[role='listbox'] [role='option'] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
