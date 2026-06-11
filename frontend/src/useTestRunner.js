@@ -27,8 +27,9 @@ function createRunner() {
   const isRunning = ref(false)
   const summary = reactive({ show: false, ok: true, stopped: false, passed: 0, failed: 0, errors: 0 })
   // Live progress while a run streams: how many tests have finished vs the total
-  // the run was started with. `total` is 0 when unknown (e.g. whole-app runs).
-  const progress = reactive({ done: 0, total: 0 })
+  // the run was started with (`total` is 0 when unknown, e.g. whole-app runs),
+  // plus running pass/fail tallies parsed from the stream.
+  const progress = reactive({ done: 0, total: 0, passed: 0, failed: 0, errors: 0 })
 
   let stopped = false
   let session = null
@@ -51,11 +52,18 @@ function createRunner() {
   // A finished-test line looks like "   ✔ test_name (1.2s)" / "✖ …" / "= …".
   // The "▸ running …" line marks a *start*, so it's deliberately excluded.
   const DONE_LINE = /^\s*[✔✖=xu]\s/
+  const PASS_LINE = /^\s*[✔=]\s/ // ✔ passed, = skipped (counted as not-failed)
+
+  function tally(text) {
+    if (!DONE_LINE.test(text)) return
+    progress.done += 1
+    if (PASS_LINE.test(text)) progress.passed += 1
+    else progress.failed += 1 // ✖ — a failure or error (split exactly at completion)
+  }
 
   function onOutput(data) {
     if (data.run_name !== currentRun.value) return
-    const text = stripAnsi(data.line ?? '')
-    if (DONE_LINE.test(text)) progress.done += 1
+    tally(stripAnsi(data.line ?? ''))
     appendLine(data.line)
   }
   function onCompleted(data) {
@@ -84,6 +92,9 @@ function createRunner() {
     session = { active: true, passed: 0, failed: 0, errors: 0 }
     progress.done = 0
     progress.total = total
+    progress.passed = 0
+    progress.failed = 0
+    progress.errors = 0
     isRunning.value = true
     runLabel.value = label
     status.value = 'Queuing…'
@@ -102,10 +113,12 @@ function createRunner() {
     summary.failed = session.failed
     summary.errors = session.errors
     summary.show = true
-    appendLine('')
-    appendLine(
-      `${ok ? '✔ Passed' : '✖ Failed'} — Passed: ${session.passed}, Failed: ${session.failed}, Errors: ${session.errors}`,
-    )
+    // Sync the live footer tally with the authoritative final counts (the stream
+    // can't tell a failure from an error; the completion event can).
+    progress.passed = session.passed
+    progress.failed = session.failed
+    progress.errors = session.errors
+    // No console summary line / banner — the footer shows the final tally.
     status.value = ok ? 'Passed' : 'Failed'
   }
 
@@ -238,7 +251,7 @@ function createRunner() {
     const seed = (run.full_output || '').split('\n')
     if (seed.length === 1 && seed[0] === '') seed.length = 0
     seed.forEach((text) => {
-      if (DONE_LINE.test(stripAnsi(text))) progress.done += 1
+      tally(stripAnsi(text))
       appendLine(text)
     })
     lastRun.value = run.name

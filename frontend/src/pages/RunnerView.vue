@@ -142,23 +142,12 @@
 
         <Console :lines="runner.lines.value" />
 
+        <!-- Stopped notice (the pass/fail tally lives in the footer below). -->
         <div
-          v-if="runner.summary.show"
-          class="flex-shrink-0 px-3.5 py-2 text-sm font-bold"
-          :class="
-            runner.summary.stopped
-              ? 'bg-[#4a1515] text-[#ff7b72]'
-              : runner.summary.ok
-              ? 'bg-[#1a472a] text-[#3fb950]'
-              : 'bg-[#4a1515] text-[#ff7b72]'
-          "
+          v-if="runner.summary.show && runner.summary.stopped"
+          class="flex-shrink-0 bg-[#4a1515] px-3.5 py-2 text-sm font-bold text-[#ff7b72]"
         >
-          <template v-if="runner.summary.stopped">■ Stopped by user</template>
-          <template v-else>
-            {{ runner.summary.ok ? '✔ Passed' : '✖ Failed' }} — Passed:
-            {{ runner.summary.passed }}, Failed: {{ runner.summary.failed }}, Errors:
-            {{ runner.summary.errors }}
-          </template>
+          ■ Stopped by user
         </div>
         <!-- Footer bar — only shown once a run has started; mirrors the left
              pane's "Run Selected" bar height so the two bottom rows align. -->
@@ -172,9 +161,27 @@
           >
             Open full run →
           </RouterLink>
-          <span v-if="progressLabel" class="text-xs font-medium text-ink-gray-6 tabular-nums">
-            {{ progressLabel }}
-          </span>
+          <div
+            v-if="showProgress"
+            class="flex items-center gap-3 text-xs font-medium tabular-nums"
+          >
+            <span class="text-ink-gray-6">{{ progressCount }}</span>
+            <span :class="progressPassed ? 'text-ink-green-3' : 'text-ink-gray-5'">
+              ✓ {{ progressPassed }} Passed
+            </span>
+            <span
+              :class="progressFailed ? 'text-ink-red-3' : 'text-ink-gray-5'"
+              title="An assertion failed"
+            >
+              ✕ {{ progressFailed }} Failed
+            </span>
+            <span
+              :class="progressErrors ? 'text-ink-amber-3' : 'text-ink-gray-5'"
+              title="The test crashed with an unexpected exception"
+            >
+              ⚠ {{ progressErrors }} Errors
+            </span>
+          </div>
         </div>
       </div>
     </div>
@@ -257,14 +264,17 @@ const showOpenRun = computed(
   () => !!runner.lastRun.value && runner.lines.value.length > 0,
 )
 
-// Live "done / total" while a run streams; after it finishes, show the final tally.
-const progressLabel = computed(() => {
+// Live progress shown in the console footer: how many tests have run (vs total)
+// and a running pass/fail tally that updates as each test completes.
+const progressCount = computed(() => {
   const { done, total } = runner.progress
-  if (runner.isRunning.value) {
-    return total ? `${done} / ${total} tests` : `${done} tests run…`
-  }
-  return done ? `${done}${total ? ` / ${total}` : ''} tests` : ''
+  if (!done && !runner.isRunning.value) return ''
+  return total ? `${done} / ${total} tests` : `${done} tests`
 })
+const progressPassed = computed(() => runner.progress.passed)
+const progressFailed = computed(() => runner.progress.failed)
+const progressErrors = computed(() => runner.progress.errors)
+const showProgress = computed(() => !!progressCount.value)
 
 // ── Grouping (app › module) ─────────────────────────────────────────────────
 const groupedRecords = computed(() => {
