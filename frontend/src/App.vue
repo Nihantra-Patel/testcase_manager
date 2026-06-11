@@ -2,14 +2,14 @@
   <div class="flex h-full flex-col bg-surface-white text-ink-gray-9">
     <!-- Top bar -->
     <header
-      class="flex h-12 flex-shrink-0 items-center justify-between border-b border-outline-gray-2 px-4"
+      class="flex h-14 flex-shrink-0 items-center justify-between border-b border-outline-gray-2 px-8"
     >
       <div class="flex items-center gap-2">
         <FeatherIcon name="check-circle" class="h-5 w-5 text-ink-green-3" />
         <span class="text-base font-semibold">Testcase Manager</span>
       </div>
       <div class="flex items-center gap-3">
-        <nav class="flex items-center gap-1 rounded-lg bg-surface-gray-2 p-0.5">
+        <nav class="flex items-center rounded-full bg-surface-gray-2 p-1">
           <RouterLink
             v-for="link in links"
             :key="link.to"
@@ -17,7 +17,7 @@
             v-slot="{ isActive, isExactActive }"
           >
             <button
-              class="rounded-md px-3 py-1 text-sm font-medium transition-colors"
+              class="rounded-full px-4 py-1 text-sm font-medium transition-colors"
               :class="
                 (link.exact ? isExactActive : isActive)
                   ? 'bg-surface-white text-ink-gray-9 shadow-sm'
