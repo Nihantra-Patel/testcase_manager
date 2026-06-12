@@ -7,6 +7,17 @@ All methods are callable from the browser via frappe.call().
 import frappe
 from frappe.utils import now_datetime
 
+# Roles allowed to run tests / mutate Testcase records. Running a test imports and
+# executes arbitrary Python in a worker, so the whitelisted endpoints must not be
+# callable by every logged-in user — gate them explicitly.
+ALLOWED_ROLES = ("System Manager",)
+
+
+def _guard() -> None:
+	"""Allow only privileged roles to invoke a mutating / test-running endpoint."""
+	frappe.only_for(ALLOWED_ROLES)
+
+
 # ---------------------------------------------------------------------------
 # Test Execution
 # ---------------------------------------------------------------------------
@@ -42,6 +53,7 @@ def run_test_case(test_case: str, run_scope: str = "Method", background: int | s
 	    dict with ``run_name`` (the new Test Case Run ID) and ``task_id``
 	    (same value — used by the UI to subscribe to realtime events).
 	"""
+	_guard()
 	tc = frappe.get_doc("Testcase", test_case)
 
 	run = frappe.new_doc("Testcase Run")
@@ -78,35 +90,11 @@ def run_test_case(test_case: str, run_scope: str = "Method", background: int | s
 		from testcase_manager.testcase_manager.executor import execute_test_case_job
 
 		execute_test_case_job(run.name)
-
-		run.reload()
-		log_name = frappe.db.get_value("Testcase Log", {"run_reference": run.name}, "name")
-		log = (
-			frappe.db.get_value(
-				"Testcase Log",
-				log_name,
-				["passed_count", "failed_count", "error_count"],
-				as_dict=True,
-			)
-			if log_name
-			else {}
-		)
 		return {
 			"run_name": run.name,
 			"task_id": run.name,
 			"background": False,
-			"result": {
-				"run_name": run.name,
-				"status": run.status,
-				"log_name": log_name,
-				"summary": run.result,
-				"duration": run.duration,
-				"passed": (log or {}).get("passed_count") or 0,
-				"failed": (log or {}).get("failed_count") or 0,
-				"errors": (log or {}).get("error_count") or 0,
-				"full_output": run.full_output,
-				"traceback": run.traceback,
-			},
+			"result": _inline_result(run.name),
 		}
 
 	return {"run_name": run.name, "task_id": run.name, "background": use_bg}
@@ -149,6 +137,7 @@ def run_test_batch(test_cases: str | list, background: int | str | bool = 0) -> 
 	is anchored on one Testcase Run. Runs inline by default; pass background=1
 	for large selections.
 	"""
+	_guard()
 	import json
 
 	if isinstance(test_cases, str):
@@ -209,6 +198,7 @@ def stop_run(run_name: str, partial_output: str | None = None) -> dict:
 	console text it has already streamed (``partial_output``) so the History page
 	still shows what ran before the stop.
 	"""
+	_guard()
 	from frappe.utils.background_jobs import create_job_id, get_redis_conn
 
 	cancelled = False
@@ -275,6 +265,7 @@ def sync_test_cases(
 
 	Scoped syncs run synchronously (fast); only a full all-apps sync is queued.
 	"""
+	_guard()
 	from testcase_manager.testcase_manager.discovery import discover_all_test_cases
 
 	if app and app.strip():
@@ -300,119 +291,6 @@ def sync_test_cases(
 
 
 @frappe.whitelist()
-def get_test_cases_for_page(
-	app: str | None = None,
-	reference_type: str | None = None,
-	reference_doctype: str | None = None,
-	report: str | None = None,
-	search: str | None = None,
-	page: int = 1,
-	page_size: int = 200,
-) -> dict:
-	"""
-	Return paginated, filtered list of Test Case records for the Test Runner page.
-
-	``reference_doctype`` filters the ``reference_doctype`` field (used when
-	reference_type is "DocType").
-	``report`` filters the ``report`` field (used when reference_type is "Report").
-	"""
-	filters: dict = {"status": "Active"}
-	if app and app.strip():
-		filters["app"] = app.strip()
-	if reference_type and reference_type.strip():
-		filters["reference_type"] = reference_type.strip()
-	if report and report.strip():
-		filters["report"] = report.strip()
-	if reference_doctype and reference_doctype.strip():
-		filters["reference_doctype"] = reference_doctype.strip()
-
-	or_filters = None
-	if search and search.strip():
-		or_filters = [
-			["test_method", "like", f"%{search.strip()}%"],
-			["reference_doctype", "like", f"%{search.strip()}%"],
-			["report", "like", f"%{search.strip()}%"],
-			["python_path", "like", f"%{search.strip()}%"],
-		]
-
-	fields = [
-		"name",
-		"app",
-		"module",
-		"reference_type",
-		"reference_doctype",
-		"report",
-		"test_file",
-		"test_method",
-		"python_path",
-		"status",
-	]
-
-	total = frappe.db.count("Testcase", filters=filters)
-
-	records = frappe.get_all(
-		"Testcase",
-		filters=filters,
-		or_filters=or_filters,
-		fields=fields,
-		limit_start=(int(page) - 1) * int(page_size),
-		limit_page_length=int(page_size),
-		order_by="app asc, module asc, test_method asc",
-	)
-
-	return {"total": total, "records": records}
-
-
-@frappe.whitelist()
-def get_installed_apps_list() -> list[str]:
-	"""Return only apps that actually have discovered test cases (for filter dropdowns)."""
-	rows = frappe.get_all(
-		"Testcase",
-		filters={"status": "Active"},
-		distinct=True,
-		pluck="app",
-		order_by="app asc",
-	)
-	return rows
-
-
-@frappe.whitelist()
-def get_reference_options(app: str | None = None, reference_type: str | None = None) -> list[dict]:
-	"""
-	Return the distinct references (DocTypes and/or Reports) that actually have
-	test cases, optionally scoped to a single app.
-
-	Each item is ``{"value": name, "type": "DocType"|"Report"}``. When
-	``reference_type`` is empty (the "All Types" filter), both DocTypes and Reports
-	are returned so the dropdown isn't limited to DocTypes.
-
-	Used by the Test Runner's DocType/Report filter so it only offers references
-	relevant to the selected app — not every DocType/Report on the site.
-	"""
-	rtype = (reference_type or "").strip()
-
-	def _names(field: str, type_value: str) -> list[dict]:
-		filters: dict = {"status": "Active", "reference_type": type_value}
-		if app and app.strip():
-			filters["app"] = app.strip()
-		values = frappe.get_all(
-			"Testcase",
-			filters=filters,
-			distinct=True,
-			pluck=field,
-			order_by=f"{field} asc",
-		)
-		return [{"value": v, "type": type_value} for v in values if v]
-
-	if rtype == "Report":
-		return _names("report", "Report")
-	if rtype == "DocType":
-		return _names("reference_doctype", "DocType")
-	# All Types → both, DocTypes first then Reports.
-	return _names("reference_doctype", "DocType") + _names("report", "Report")
-
-
-@frappe.whitelist()
 def run_app_tests(app: str) -> dict:
 	"""
 	Run the entire test suite for an app in one background job.
@@ -420,38 +298,9 @@ def run_app_tests(app: str) -> dict:
 	Anchors the run on any one Testcase belonging to the app (the executor only
 	needs ``tc.app`` to drive ``discover_all_tests`` for App scope).
 	"""
+	_guard()
 	anchor = frappe.db.get_value("Testcase", {"app": app, "status": "Active"}, "name")
 	if not anchor:
 		frappe.throw(f"No active test cases found for app '{app}'")
 	# Whole-app runs are long → always background.
 	return run_test_case(anchor, run_scope="App", background=1)
-
-
-@frappe.whitelist()
-def get_run_count(filters: str | dict | None = None) -> dict:
-	"""Total number of Testcase Run records matching the History page filters."""
-	import json
-
-	if isinstance(filters, str):
-		filters = json.loads(filters or "{}")
-
-	return {"count": frappe.db.count("Testcase Run", filters=dict(filters or {}))}
-
-
-@frappe.whitelist()
-def get_active_run() -> dict | None:
-	"""
-	The most recent still-in-progress run (status Running/Pending), if any.
-
-	Lets the UI reconnect and resume streaming after a page reload — it returns
-	the run name, its label, and the output already saved so the console can be
-	seeded before live events take over.
-	"""
-	rows = frappe.get_all(
-		"Testcase Run",
-		filters={"status": ["in", ["Running", "Pending"]]},
-		fields=["name", "test_method", "status", "full_output"],
-		order_by="creation desc",
-		limit=1,
-	)
-	return rows[0] if rows else None

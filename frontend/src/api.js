@@ -1,12 +1,20 @@
 import { call } from 'frappe-ui'
 
+// Execution endpoints (run / stop / sync) live in api.py; read-only page queries
+// live in queries.py.
 const M = 'testcase_manager.testcase_manager.api'
+const Q = 'testcase_manager.testcase_manager.queries'
 
 export const api = {
-  getInstalledApps: () => call(`${M}.get_installed_apps_list`),
+  // ── Read-only queries ──────────────────────────────────────────────
+  getInstalledApps: () => call(`${Q}.get_installed_apps_list`),
   getReferenceOptions: (app, reference_type) =>
-    call(`${M}.get_reference_options`, { app, reference_type }),
-  getTestCases: (args) => call(`${M}.get_test_cases_for_page`, args),
+    call(`${Q}.get_reference_options`, { app, reference_type }),
+  getTestCases: (args) => call(`${Q}.get_test_cases_for_page`, args),
+  getRunCount: (filters) => call(`${Q}.get_run_count`, { filters: JSON.stringify(filters || {}) }),
+  getActiveRun: () => call(`${Q}.get_active_run`),
+
+  // ── Execution ──────────────────────────────────────────────────────
   runTestCase: (test_case, run_scope = 'Method', background = 0) =>
     call(`${M}.run_test_case`, { test_case, run_scope, background }),
   runTestBatch: (test_cases, background = 0) =>
@@ -15,6 +23,4 @@ export const api = {
   stopRun: (run_name, partial_output) =>
     call(`${M}.stop_run`, { run_name, partial_output }),
   syncTestCases: (args) => call(`${M}.sync_test_cases`, args),
-  getRunCount: (filters) => call(`${M}.get_run_count`, { filters: JSON.stringify(filters || {}) }),
-  getActiveRun: () => call(`${M}.get_active_run`),
 }
