@@ -149,8 +149,13 @@ def execute_test_case_job(run_name: str) -> None:
 	stream = RealtimeLineStream(task_id, run_name)
 
 	try:
-		run_doc = frappe.get_doc("Testcase Run", run_name)
-		tc = frappe.get_doc("Testcase", run_doc.test_case)
+		run_doc = frappe.db.get_value("Testcase Run", run_name, ["test_case", "run_scope"], as_dict=True)
+		tc = frappe.db.get_value(
+			"Testcase",
+			run_doc.test_case,
+			["test_method", "app", "python_path", "reference_doctype"],
+			as_dict=True,
+		)
 		run_scope = run_doc.run_scope or "Method"
 
 		all_results = _run_tests_in_process(tc, run_scope, stream)
@@ -284,7 +289,11 @@ def execute_test_batch_job(run_name: str, test_cases: list[str]) -> None:
 	stream = RealtimeLineStream(task_id, run_name)
 
 	try:
-		tcs = [frappe.get_doc("Testcase", name) for name in test_cases]
+		# Only a few fields are needed per testcase — fetch them, not full docs.
+		tcs = [
+			frappe.db.get_value("Testcase", name, ["name", "app", "test_method", "python_path"], as_dict=True)
+			for name in test_cases
+		]
 		all_results = _run_batch_in_process(tcs, stream)
 
 		stream.flush()

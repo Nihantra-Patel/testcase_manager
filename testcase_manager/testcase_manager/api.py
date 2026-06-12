@@ -30,12 +30,17 @@ def _combined_reference_type(test_case_names: list[str]) -> str:
 	A single test → "DocType" or "Report". A batch spanning both → "DocType-Report"
 	(types joined, sorted, deduped). Tests with no reference_type are ignored.
 	"""
-	types = frappe.get_all(
-		"Testcase",
-		filters={"name": ["in", test_case_names]},
-		pluck="reference_type",
+	if not test_case_names:
+		return ""
+	tc = frappe.qb.DocType("Testcase")
+	rows = (
+		frappe.qb.from_(tc)
+		.select(tc.reference_type)
+		.distinct()
+		.where(tc.name.isin(test_case_names))
+		.run(pluck=True)
 	)
-	distinct = sorted({t for t in types if t})
+	distinct = sorted({t for t in rows if t})
 	return "-".join(distinct)
 
 
@@ -54,7 +59,13 @@ def run_test_case(test_case: str, run_scope: str = "Method", background: int | s
 	    (same value — used by the UI to subscribe to realtime events).
 	"""
 	_guard()
-	tc = frappe.get_doc("Testcase", test_case)
+	# Only a few fields are needed to seed the run — fetch them, not the whole doc.
+	tc = frappe.db.get_value(
+		"Testcase",
+		test_case,
+		["app", "test_method", "python_path", "reference_type"],
+		as_dict=True,
+	)
 
 	run = frappe.new_doc("Testcase Run")
 	run.test_case = test_case
@@ -102,7 +113,12 @@ def run_test_case(test_case: str, run_scope: str = "Method", background: int | s
 
 def _inline_result(run_name: str) -> dict:
 	"""Build the UI result payload from a finished (inline) Testcase Run."""
-	run = frappe.get_doc("Testcase Run", run_name)
+	run = frappe.db.get_value(
+		"Testcase Run",
+		run_name,
+		["status", "result", "duration", "full_output", "traceback"],
+		as_dict=True,
+	)
 	log_name = frappe.db.get_value("Testcase Log", {"run_reference": run_name}, "name")
 	log = (
 		frappe.db.get_value(
@@ -145,10 +161,10 @@ def run_test_batch(test_cases: str | list, background: int | str | bool = 0) -> 
 	if not test_cases:
 		frappe.throw("No test cases provided")
 
-	anchor = frappe.get_doc("Testcase", test_cases[0])
+	anchor = frappe.db.get_value("Testcase", test_cases[0], ["app", "python_path"], as_dict=True)
 
 	run = frappe.new_doc("Testcase Run")
-	run.test_case = anchor.name
+	run.test_case = test_cases[0]
 	run.app = anchor.app
 	run.test_method = f"{len(test_cases)} tests (batch)"
 	run.python_path = anchor.python_path

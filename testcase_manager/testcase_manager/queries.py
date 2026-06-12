@@ -7,6 +7,7 @@ Mutating / test-running endpoints live in ``api.py``.
 """
 
 import frappe
+from frappe.query_builder.functions import Count
 
 # Cap on how many records a single list query may return (avoids a client asking
 # for an unbounded page that could exhaust memory). The Runner loads a whole app's
@@ -31,51 +32,55 @@ def get_test_cases_for_page(
 	reference_type is "DocType").
 	``report`` filters the ``report`` field (used when reference_type is "Report").
 	"""
-	filters: dict = {"status": "Active"}
+	tc = frappe.qb.DocType("Testcase")
+
+	# Equality filters (ANDed together).
+	criterion = tc.status == "Active"
 	if app and app.strip():
-		filters["app"] = app.strip()
+		criterion &= tc.app == app.strip()
 	if reference_type and reference_type.strip():
-		filters["reference_type"] = reference_type.strip()
+		criterion &= tc.reference_type == reference_type.strip()
 	if report and report.strip():
-		filters["report"] = report.strip()
+		criterion &= tc.report == report.strip()
 	if reference_doctype and reference_doctype.strip():
-		filters["reference_doctype"] = reference_doctype.strip()
+		criterion &= tc.reference_doctype == reference_doctype.strip()
 
-	or_filters = None
+	# Free-text search across a few fields (ORed), combined with the filters above.
 	if search and search.strip():
-		or_filters = [
-			["test_method", "like", f"%{search.strip()}%"],
-			["reference_doctype", "like", f"%{search.strip()}%"],
-			["report", "like", f"%{search.strip()}%"],
-			["python_path", "like", f"%{search.strip()}%"],
-		]
+		like = f"%{search.strip()}%"
+		criterion &= (
+			tc.test_method.like(like)
+			| tc.reference_doctype.like(like)
+			| tc.report.like(like)
+			| tc.python_path.like(like)
+		)
 
-	fields = [
-		"name",
-		"app",
-		"module",
-		"reference_type",
-		"reference_doctype",
-		"report",
-		"test_file",
-		"test_method",
-		"python_path",
-		"status",
-	]
-
-	total = frappe.db.count("Testcase", filters=filters)
+	total = frappe.qb.from_(tc).select(Count("*")).where(criterion).run()[0][0]
 
 	page = max(int(page), 1)
 	page_size = min(max(int(page_size), 1), MAX_PAGE_SIZE)
 
-	records = frappe.get_all(
-		"Testcase",
-		filters=filters,
-		or_filters=or_filters,
-		fields=fields,
-		limit_start=(page - 1) * page_size,
-		limit_page_length=page_size,
-		order_by="app asc, module asc, test_method asc",
+	records = (
+		frappe.qb.from_(tc)
+		.select(
+			tc.name,
+			tc.app,
+			tc.module,
+			tc.reference_type,
+			tc.reference_doctype,
+			tc.report,
+			tc.test_file,
+			tc.test_method,
+			tc.python_path,
+			tc.status,
+		)
+		.where(criterion)
+		.orderby(tc.app)
+		.orderby(tc.module)
+		.orderby(tc.test_method)
+		.limit(page_size)
+		.offset((page - 1) * page_size)
+		.run(as_dict=True)
 	)
 
 	return {"total": total, "records": records}
@@ -84,12 +89,14 @@ def get_test_cases_for_page(
 @frappe.whitelist()
 def get_installed_apps_list() -> list[str]:
 	"""Return only apps that actually have discovered test cases (for filter dropdowns)."""
-	return frappe.get_all(
-		"Testcase",
-		filters={"status": "Active"},
-		distinct=True,
-		pluck="app",
-		order_by="app asc",
+	tc = frappe.qb.DocType("Testcase")
+	return (
+		frappe.qb.from_(tc)
+		.select(tc.app)
+		.distinct()
+		.where(tc.status == "Active")
+		.orderby(tc.app)
+		.run(pluck=True)
 	)
 
 
@@ -108,25 +115,21 @@ def get_reference_options(app: str | None = None, reference_type: str | None = N
 	"""
 	rtype = (reference_type or "").strip()
 
-	def _names(field: str, type_value: str) -> list[dict]:
-		filters: dict = {"status": "Active", "reference_type": type_value}
+	tc = frappe.qb.DocType("Testcase")
+
+	def _names(field, type_value: str) -> list[dict]:
+		criterion = (tc.status == "Active") & (tc.reference_type == type_value)
 		if app and app.strip():
-			filters["app"] = app.strip()
-		values = frappe.get_all(
-			"Testcase",
-			filters=filters,
-			distinct=True,
-			pluck=field,
-			order_by=f"{field} asc",
-		)
+			criterion &= tc.app == app.strip()
+		values = frappe.qb.from_(tc).select(field).distinct().where(criterion).orderby(field).run(pluck=True)
 		return [{"value": v, "type": type_value} for v in values if v]
 
 	if rtype == "Report":
-		return _names("report", "Report")
+		return _names(tc.report, "Report")
 	if rtype == "DocType":
-		return _names("reference_doctype", "DocType")
+		return _names(tc.reference_doctype, "DocType")
 	# All Types → both, DocTypes first then Reports.
-	return _names("reference_doctype", "DocType") + _names("report", "Report")
+	return _names(tc.reference_doctype, "DocType") + _names(tc.report, "Report")
 
 
 @frappe.whitelist()
@@ -149,11 +152,13 @@ def get_active_run() -> dict | None:
 	the run name, its label, and the output already saved so the console can be
 	seeded before live events take over.
 	"""
-	rows = frappe.get_all(
-		"Testcase Run",
-		filters={"status": ["in", ["Running", "Pending"]]},
-		fields=["name", "test_method", "status", "full_output"],
-		order_by="creation desc",
-		limit=1,
+	run = frappe.qb.DocType("Testcase Run")
+	rows = (
+		frappe.qb.from_(run)
+		.select(run.name, run.test_method, run.status, run.full_output)
+		.where(run.status.isin(["Running", "Pending"]))
+		.orderby(run.creation, order=frappe.qb.desc)
+		.limit(1)
+		.run(as_dict=True)
 	)
 	return rows[0] if rows else None

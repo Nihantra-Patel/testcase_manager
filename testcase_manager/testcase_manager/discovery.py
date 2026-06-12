@@ -244,16 +244,16 @@ def _sync_records(app: str, discovered: list[dict], ref_type: str = "", ref_name
 	counts = {"created": 0, "updated": 0, "deleted": 0}
 
 	# Fetch existing records for this app — scoped to the same subset being synced.
-	ex_filters: dict = {"app": app}
+	tc = frappe.qb.DocType("Testcase")
+	criterion = tc.app == app
 	if ref_type:
-		ex_filters["reference_type"] = ref_type
+		criterion &= tc.reference_type == ref_type
 	if ref_name:
-		ex_filters["report" if ref_type == "Report" else "reference_doctype"] = ref_name
+		ref_field = tc.report if ref_type == "Report" else tc.reference_doctype
+		criterion &= ref_field == ref_name
 
-	existing_rows = frappe.get_all(
-		"Testcase",
-		filters=ex_filters,
-		fields=["name", "python_path", "test_method"],
+	existing_rows = (
+		frappe.qb.from_(tc).select(tc.name, tc.python_path, tc.test_method).where(criterion).run(as_dict=True)
 	)
 	existing: dict[str, str] = {f"{r.python_path}::{r.test_method}": r.name for r in existing_rows}
 
@@ -319,7 +319,8 @@ def _sync_records(app: str, discovered: list[dict], ref_type: str = "", ref_name
 
 def _delete_testcase(name: str) -> None:
 	"""Hard-delete a Testcase and its dependent Run/Log records."""
-	run_names = frappe.get_all("Testcase Run", filters={"test_case": name}, pluck="name")
+	run = frappe.qb.DocType("Testcase Run")
+	run_names = frappe.qb.from_(run).select(run.name).where(run.test_case == name).run(pluck=True)
 	for run in run_names:
 		frappe.db.delete("Testcase Log", {"run_reference": run})
 	frappe.db.delete("Testcase Run", {"test_case": name})
