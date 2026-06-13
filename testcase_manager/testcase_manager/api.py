@@ -80,10 +80,10 @@ def run_test_case(test_case: str, run_scope: str = "Method", background: int | s
 	run.triggered_by = frappe.session.user
 	run.status = "Pending"
 	run.run_scope = run_scope
+	use_bg = str(background) not in ("0", "", "false", "False", "None")
+	run.realtime = 1 if use_bg else 0
 	run.insert(ignore_permissions=True)
 	frappe.db.commit()
-
-	use_bg = str(background) not in ("0", "", "false", "False", "None")
 
 	if use_bg:
 		frappe.enqueue(
@@ -174,10 +174,10 @@ def run_test_batch(test_cases: str | list, background: int | str | bool = 0) -> 
 	run.triggered_by = frappe.session.user
 	run.status = "Pending"
 	run.run_scope = "Batch"
+	use_bg = str(background) not in ("0", "", "false", "False", "None")
+	run.realtime = 1 if use_bg else 0
 	run.insert(ignore_permissions=True)
 	frappe.db.commit()
-
-	use_bg = str(background) not in ("0", "", "false", "False", "None")
 
 	if use_bg:
 		frappe.enqueue(

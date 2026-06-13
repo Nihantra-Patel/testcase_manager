@@ -16,6 +16,10 @@
           <Select v-model="filters.status" :options="statusOptions" class="min-w-[130px]" />
         </div>
         <div>
+          <div class="mb-1 text-xs font-semibold text-ink-gray-5">Mode</div>
+          <Select v-model="filters.mode" :options="modeOptions" class="min-w-[120px]" />
+        </div>
+        <div>
           <div class="mb-1 text-xs font-semibold text-ink-gray-5">
             Search
           </div>
@@ -43,6 +47,7 @@
       >
         <span class="flex-1 min-w-[200px] pr-4">Test</span>
         <span class="w-[100px] flex-shrink-0 pr-4">App</span>
+        <span class="w-[100px] flex-shrink-0 pr-4">Mode</span>
         <span class="w-[90px] flex-shrink-0 pr-4">Scope</span>
         <span class="w-[110px] flex-shrink-0 pr-4">Type</span>
         <span class="w-[120px] flex-shrink-0 pr-4">Status</span>
@@ -67,6 +72,12 @@
           {{ r.test_method }}
         </span>
         <span class="w-[100px] flex-shrink-0 truncate pr-4 text-ink-gray-6">{{ r.app }}</span>
+        <span class="w-[100px] flex-shrink-0 pr-4">
+          <Badge
+            :theme="r.realtime ? 'blue' : 'gray'"
+            :label="r.realtime ? 'Realtime' : 'Quick'"
+          />
+        </span>
         <span class="w-[90px] flex-shrink-0 truncate pr-4 text-ink-gray-6">
           {{ r.run_scope }}
         </span>
@@ -205,7 +216,7 @@ import Console from '@/components/Console.vue'
 
 const STORAGE_KEY = 'tc_history_filters_v1'
 
-const filters = reactive({ app: '', status: '', type: '', search: '' })
+const filters = reactive({ app: '', status: '', type: '', mode: '', search: '' })
 const pageSize = ref(20)
 const apps = ref([])
 
@@ -241,6 +252,11 @@ const statusOptions = [
   { label: 'Running', value: 'Running' },
   { label: 'Pending', value: 'Pending' },
 ]
+const modeOptions = [
+  { label: 'All Modes', value: '' },
+  { label: 'Realtime', value: '1' },
+  { label: 'Quick', value: '0' },
+]
 const typeOptions = [
   { label: 'All Types', value: '' },
   { label: 'DocType', value: 'DocType' },
@@ -262,6 +278,7 @@ function buildFilters() {
   if (filters.status) f.status = filters.status
   if (filters.search.trim()) f.test_method = ['like', `%${filters.search.trim()}%`]
   if (filters.type) f.reference_type = filters.type
+  if (filters.mode) f.realtime = filters.mode
   return f
 }
 
@@ -272,6 +289,7 @@ const runs = createListResource({
     'test_method',
     'app',
     'run_scope',
+    'realtime',
     'status',
     'duration',
     'exec_time',
@@ -300,7 +318,7 @@ function applyAndReload() {
 }
 
 watch(
-  () => [filters.app, filters.status, filters.type, pageSize.value],
+  () => [filters.app, filters.status, filters.type, filters.mode, pageSize.value],
   () => {
     saveFilters()
     applyAndReload()
@@ -331,6 +349,7 @@ function restoreFilters() {
     if (s.app) filters.app = s.app
     if (s.status) filters.status = s.status
     if (s.type) filters.type = s.type
+    if (s.mode) filters.mode = s.mode
     if (s.pageSize) pageSize.value = s.pageSize
   } catch (e) {
     /* ignore */
@@ -342,6 +361,7 @@ function resetFilters() {
   filters.app = ''
   filters.status = ''
   filters.type = ''
+  filters.mode = ''
   filters.search = ''
   try {
     localStorage.removeItem(STORAGE_KEY)

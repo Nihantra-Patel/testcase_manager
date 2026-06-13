@@ -224,8 +224,8 @@ function createRunner() {
     return runBatch(names, realtime)
   }
 
-  async function runEntireApp(app) {
-    startSession(`Entire test suite for: ${app}`)
+  async function runEntireApp(app, total = 0) {
+    startSession(`Entire test suite for: ${app}`, total)
     appendLine(`▶ Running the entire test suite for: ${app}`)
     appendLine('This runs in the background and may take several minutes…')
     appendLine('')

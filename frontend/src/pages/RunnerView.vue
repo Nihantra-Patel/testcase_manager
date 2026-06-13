@@ -426,9 +426,18 @@ function runSelected() {
 function confirmRunApp() {
   showRunAppDialog.value = true
 }
-function doRunApp() {
+async function doRunApp() {
   showRunAppDialog.value = false
-  runner.runEntireApp(filters.app)
+  // The app run ignores Type/DocType filters, so fetch the app's full test count
+  // for an accurate "done / total" progress, not the filtered total.
+  let appTotal = 0
+  try {
+    const res = await api.getTestCases({ app: filters.app, page_size: 1 })
+    appTotal = res?.total || 0
+  } catch (e) {
+    /* progress will fall back to a plain count */
+  }
+  runner.runEntireApp(filters.app, appTotal)
 }
 
 async function syncTests() {
