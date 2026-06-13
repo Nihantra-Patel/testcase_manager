@@ -30,6 +30,67 @@ def _sum_exec_time(all_results: list) -> float:
 	return round(sum(getattr(r, "_tc_exec_time", 0) or 0 for r in all_results), 3)
 
 
+# Cross-worker mutex so only ONE test run executes at a time. Integration tests
+# lock the same rows during BOTH setup and execution, so concurrent runs on one
+# shared site DB inevitably deadlock — serializing only setup isn't enough. This
+# lock holds for the whole run: overlapping runs queue and execute one at a time,
+# which removes deadlocks entirely. App-agnostic (no per-app assumptions).
+_RUN_LOCK_KEY = "testcase_manager:run_lock"
+_RUN_LOCK_TTL = 7200  # seconds; auto-expires so a crashed run can't wedge it
+_RUN_LOCK_WAIT = 7200  # max seconds to wait for our turn
+
+
+class _run_lock:
+	"""
+	Context manager: acquire the global run lock (Redis SET NX), waiting our turn.
+
+	Held for the entire run so two runs never touch the DB concurrently. If the
+	wait somehow times out we proceed anyway rather than dropping the run.
+	"""
+
+	def __init__(self, stream: "RealtimeLineStream") -> None:
+		self.stream = stream
+		self.token = frappe.generate_hash(length=16)
+		self.acquired = False
+
+	def __enter__(self):
+		import time as _time
+
+		conn = frappe.cache()
+		waited = 0
+		announced = False
+		while waited < _RUN_LOCK_WAIT:
+			# SET key token NX EX ttl → only sets if absent (atomic across workers).
+			if conn.set(_RUN_LOCK_KEY, self.token, nx=True, ex=_RUN_LOCK_TTL):
+				self.acquired = True
+				return self
+			if not announced:
+				self.stream.write("\n⏳ Another run is in progress — waiting for it to finish…\n")
+				self.stream.flush()
+				announced = True
+			_time.sleep(1)
+			waited += 1
+		self.stream.write("\n⚠ Run lock wait timed out — proceeding anyway.\n")
+		self.stream.flush()
+		return self
+
+	def __exit__(self, *exc):
+		if not self.acquired:
+			return False
+		try:
+			conn = frappe.cache()
+			# Only release if we still own it (don't delete someone else's lock if
+			# ours expired). redis returns bytes, so decode before comparing.
+			current = conn.get(_RUN_LOCK_KEY)
+			if isinstance(current, bytes):
+				current = current.decode()
+			if current == self.token:
+				conn.delete(_RUN_LOCK_KEY)
+		except Exception:
+			pass
+		return False
+
+
 def _ensure_scheduler_enabled() -> None:
 	"""
 	Always re-enable the scheduler after a run.
@@ -438,15 +499,7 @@ def _run_tests_in_process(tc, run_scope: str, stream: "RealtimeLineStream") -> l
 
 	scope = (run_scope or "Method").strip()
 	cfg_tests: tuple[str, ...] = (tc.test_method,) if scope == "Method" else ()
-
-	config = TestConfig(tests=cfg_tests)
 	site = frappe.local.site
-
-	# Safe in background job — frappe.init() returns early if already init'd;
-	# this still sets toggle_test_mode(True) which integration tests require.
-	_initialize_test_environment(site, config)
-
-	runner = TestRunner(stream=stream, verbosity=2, cfg=config, resultclass=_streaming_result_class())
 
 	# Long-lived workers cache imported test modules in sys.modules, so edits to
 	# a test file on disk would be ignored (old bytecode keeps running) until the
@@ -455,16 +508,29 @@ def _run_tests_in_process(tc, run_scope: str, stream: "RealtimeLineStream") -> l
 	if scope in ("Method", "File", "DocType", ""):
 		_invalidate_test_module(tc.python_path)
 
-	if scope in ("Method", "File"):
-		discover_module_tests([tc.python_path], runner, tc.app)
-	elif scope == "DocType" and tc.reference_doctype:
-		discover_doctype_tests([tc.reference_doctype], runner, tc.app)
-	elif scope == "App":
-		discover_all_tests([tc.app], runner)
-	else:
-		discover_module_tests([tc.python_path], runner, tc.app)
+	def _go():
+		runner = TestRunner(
+			stream=stream,
+			verbosity=2,
+			cfg=TestConfig(tests=cfg_tests),
+			resultclass=_streaming_result_class(),
+		)
+		# Safe in background job — frappe.init() returns early if already init'd;
+		# this still sets toggle_test_mode(True) which integration tests require.
+		_initialize_test_environment(site, runner.cfg)
+		if scope in ("Method", "File"):
+			discover_module_tests([tc.python_path], runner, tc.app)
+		elif scope == "DocType" and tc.reference_doctype:
+			discover_doctype_tests([tc.reference_doctype], runner, tc.app)
+		elif scope == "App":
+			discover_all_tests([tc.app], runner)
+		else:
+			discover_module_tests([tc.python_path], runner, tc.app)
+		return _drive_runner(runner, stream)
 
-	return _drive_runner(runner, stream)
+	# Serialize the whole run (see _run_lock) so overlapping runs never deadlock.
+	with _run_lock(stream):
+		return _go()
 
 
 def _run_batch_in_process(tcs: list, stream: "RealtimeLineStream") -> list:
@@ -484,18 +550,23 @@ def _run_batch_in_process(tcs: list, stream: "RealtimeLineStream") -> list:
 	python_paths = list(dict.fromkeys(tc.python_path for tc in tcs))
 	app = tcs[0].app
 
-	config = TestConfig(tests=methods)
-	_initialize_test_environment(site, config)
-
-	runner = TestRunner(stream=stream, verbosity=2, cfg=config, resultclass=_streaming_result_class())
-
 	# Pick up on-disk edits (see _invalidate_test_module).
 	for p in python_paths:
 		_invalidate_test_module(p)
 
-	discover_module_tests(python_paths, runner, app)
+	def _go():
+		runner = TestRunner(
+			stream=stream, verbosity=2, cfg=TestConfig(tests=methods), resultclass=_streaming_result_class()
+		)
+		_initialize_test_environment(site, runner.cfg)
+		discover_module_tests(python_paths, runner, app)
+		return _drive_runner(runner, stream)
 
-	return _drive_runner(runner, stream)
+	# Hold the run lock for the WHOLE run (setup + tests): integration tests lock
+	# the same rows during execution too, so serializing only setup isn't enough.
+	# Overlapping runs queue and execute one at a time → no deadlocks.
+	with _run_lock(stream):
+		return _go()
 
 
 def _drive_runner(runner, stream: "RealtimeLineStream") -> list:

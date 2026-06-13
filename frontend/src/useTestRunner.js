@@ -25,6 +25,10 @@ function createRunner() {
   const lastRun = ref(null) // survives end-of-session (for the "open log" link)
   const logName = ref(null)
   const isRunning = ref(false)
+  // True only while a Quick (inline) run is blocking the request. Realtime runs
+  // are background jobs that queue via the worker lock, so they don't set this —
+  // the UI disables the run buttons only during an inline run.
+  const inlineRunning = ref(false)
   const summary = reactive({ show: false, ok: true, stopped: false, passed: 0, failed: 0, errors: 0 })
   // Live progress while a run streams: how many tests have finished vs the total
   // the run was started with (`total` is 0 when unknown, e.g. whole-app runs),
@@ -181,6 +185,7 @@ function createRunner() {
     appendLine(`▶ Running test: ${label}`)
     if (!realtime) appendLine('Running inline — output appears when finished…')
     appendLine('')
+    if (!realtime) inlineRunning.value = true
     try {
       // Realtime → background job, worker streams per-test progress live.
       // Inline (realtime off) → blocks the request, output returned at the end.
@@ -191,6 +196,8 @@ function createRunner() {
     } catch (e) {
       appendLine('✖ Failed to start the test (API error).')
       endSession()
+    } finally {
+      inlineRunning.value = false
     }
   }
 
@@ -204,6 +211,7 @@ function createRunner() {
         : 'Running inline — output appears when finished…',
     )
     appendLine('')
+    if (!realtime) inlineRunning.value = true
     try {
       const res = await api.runTestBatch(names, realtime ? 1 : 0)
       lastRun.value = res.run_name
@@ -212,6 +220,8 @@ function createRunner() {
     } catch (e) {
       appendLine('✖ Failed to start the batch (API error).')
       endSession()
+    } finally {
+      inlineRunning.value = false
     }
   }
 
@@ -291,6 +301,7 @@ function createRunner() {
     lastRun,
     logName,
     isRunning,
+    inlineRunning,
     summary,
     progress,
     clearConsole,

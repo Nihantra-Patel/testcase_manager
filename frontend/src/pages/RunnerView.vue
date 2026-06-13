@@ -42,6 +42,20 @@
       </div>
 
       <div class="ml-auto flex items-end gap-2">
+        <button
+          v-if="activeRuns > 0"
+          class="flex items-center gap-1.5 self-center rounded-full bg-surface-amber-1 px-2.5 py-1 text-xs font-medium text-ink-amber-3 transition-colors hover:bg-surface-amber-2"
+          title="View running tests in History"
+          @click="$router.push({ path: '/history', query: { status: 'Running' } })"
+        >
+          <span class="relative flex h-2 w-2">
+            <span
+              class="absolute inline-flex h-full w-full animate-ping rounded-full bg-ink-amber-3 opacity-75"
+            />
+            <span class="relative inline-flex h-2 w-2 rounded-full bg-ink-amber-3" />
+          </span>
+          {{ activeRuns }} running
+        </button>
         <span class="self-center text-xs text-ink-gray-5">{{ countLabel }}</span>
         <Button v-if="filters.app" variant="subtle" @click="confirmRunApp">
           <template #prefix><FeatherIcon name="play" class="h-3.5 w-3.5" /></template>
@@ -97,7 +111,12 @@
                 <Button
                   variant="solid"
                   size="sm"
-                  :disabled="runner.isRunning.value"
+                  :disabled="!canStartNewRun"
+                  :title="
+                    canStartNewRun
+                      ? 'Run this test'
+                      : 'A run is in progress — Quick run is disabled (switch to Realtime to queue it)'
+                  "
                   @click="runner.runOne(tc.name, tc.test_method, realtime)"
                 >
                   <FeatherIcon name="play" class="h-3 w-3" />
@@ -112,7 +131,7 @@
           <Button
             class="w-full"
             variant="solid"
-            :disabled="!selected.length || runner.isRunning.value"
+            :disabled="!selected.length || !canStartNewRun"
             @click="runSelected"
           >
             <template #prefix><FeatherIcon name="play" class="h-4 w-4" /></template>
@@ -212,6 +231,22 @@ const STORAGE_KEY = 'tc_runner_filters_v2'
 const runner = useTestRunner()
 onBeforeUnmount(() => runner.dispose())
 
+// Live count of in-progress runs (Running/Pending) across the site, polled so the
+// indicator reflects overlapping background runs even ones started elsewhere.
+const activeRuns = ref(0)
+async function refreshActiveRuns() {
+  try {
+    const res = await api.getRunCount({ status: ['in', ['Running', 'Pending']] })
+    activeRuns.value = res?.count || 0
+  } catch (e) {
+    /* ignore */
+  }
+}
+let activePoll
+refreshActiveRuns()
+activePoll = setInterval(refreshActiveRuns, 3000)
+onBeforeUnmount(() => clearInterval(activePoll))
+
 const filters = reactive({ app: '', type: '', ref: '', search: '' })
 // Realtime ON  → background job with live streaming (default).
 // Realtime OFF → inline run, faster, output shown at completion.
@@ -294,6 +329,15 @@ const progressPassed = computed(() => runner.progress.passed)
 const progressFailed = computed(() => runner.progress.failed)
 const progressErrors = computed(() => runner.progress.errors)
 const showProgress = computed(() => !!progressCount.value)
+
+// Gating depends on the selected Mode:
+//   • Realtime → background job; queues safely via the worker lock → always allowed.
+//   • Quick (inline) → runs in the web process, bypassing that lock, so it would
+//     deadlock against ANY active run. Block it while anything is running.
+const canStartNewRun = computed(() => {
+  if (realtime.value) return true // realtime always queues
+  return !runner.isRunning.value && !runner.inlineRunning.value
+})
 
 // ── Grouping (app › module) ─────────────────────────────────────────────────
 const groupedRecords = computed(() => {

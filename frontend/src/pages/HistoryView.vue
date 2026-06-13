@@ -236,9 +236,12 @@
 
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { createListResource, call } from 'frappe-ui'
 import { api } from '@/api'
 import Console from '@/components/Console.vue'
+
+const route = useRoute()
 
 const STORAGE_KEY = 'tc_history_filters_v1'
 
@@ -464,6 +467,9 @@ async function loadApps() {
 }
 
 restoreFilters()
+// A ?status=… query (e.g. from the Runner's "N running" pill) pre-applies that
+// status filter so the user lands on the matching list.
+if (route.query.status) filters.status = String(route.query.status)
 loadApps()
 applyAndReload()
 </script>
