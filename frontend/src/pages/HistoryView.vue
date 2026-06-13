@@ -45,18 +45,18 @@
       <div
         class="sticky top-0 z-[1] flex items-center border-b border-outline-gray-2 bg-surface-white px-8 py-2.5 text-xs font-semibold text-ink-gray-5"
       >
-        <span class="flex-1 min-w-[200px] pr-4">Test</span>
-        <span class="w-[100px] flex-shrink-0 pr-4">App</span>
-        <span class="w-[100px] flex-shrink-0 pr-4">Mode</span>
-        <span class="w-[90px] flex-shrink-0 pr-4">Scope</span>
-        <span class="w-[110px] flex-shrink-0 pr-4">Type</span>
-        <span class="w-[120px] flex-shrink-0 pr-4">Status</span>
-        <span class="w-[120px] flex-shrink-0 pr-4">Start Time</span>
-        <span class="w-[120px] flex-shrink-0 pr-4">End Time</span>
-        <span class="w-[90px] flex-shrink-0 pr-4 text-right" title="Actual test execution time">
+        <span class="flex-1 min-w-[180px] pr-4">Test</span>
+        <span class="w-[130px] flex-shrink-0 pr-4">App</span>
+        <span class="w-[110px] flex-shrink-0 pr-4">Mode</span>
+        <span class="w-[100px] flex-shrink-0 pr-4">Scope</span>
+        <span class="w-[150px] flex-shrink-0 pr-4">Type</span>
+        <span class="w-[105px] flex-shrink-0 pr-4">Status</span>
+        <span class="w-[110px] flex-shrink-0 pr-4">Start Time</span>
+        <span class="w-[110px] flex-shrink-0 pr-4">End Time</span>
+        <span class="w-[80px] flex-shrink-0 pr-4 text-right" title="Actual test execution time">
           Test Time
         </span>
-        <span class="w-[90px] flex-shrink-0 pr-4 text-right" title="Total process time">
+        <span class="w-[80px] flex-shrink-0 pr-4 text-right" title="Total process time">
           Total
         </span>
         <span class="w-[56px] flex-shrink-0 text-right">Action</span>
@@ -71,12 +71,21 @@
         <span class="flex-1 min-w-[200px] truncate pr-4 font-medium text-ink-gray-9">
           {{ r.test_method }}
         </span>
-        <span class="w-[100px] flex-shrink-0 pr-4">
-          <Badge theme="gray" :label="r.app">
-            <template #prefix><FeatherIcon name="package" class="h-3 w-3" /></template>
+        <span class="w-[130px] flex-shrink-0 pr-4">
+          <Badge theme="gray" :title="r.app">
+            <template #prefix>
+              <img
+                v-if="appLogos[r.app]"
+                :src="appLogos[r.app]"
+                class="h-3.5 w-3.5 rounded-sm object-contain"
+                alt=""
+              />
+              <FeatherIcon v-else name="package" class="h-3 w-3" />
+            </template>
+            <span class="block max-w-[78px] truncate">{{ r.app }}</span>
           </Badge>
         </span>
-        <span class="w-[100px] flex-shrink-0 pr-4">
+        <span class="w-[110px] flex-shrink-0 pr-4">
           <Badge
             :theme="r.realtime ? 'blue' : 'gray'"
             :label="r.realtime ? 'Realtime' : 'Quick'"
@@ -86,14 +95,14 @@
             </template>
           </Badge>
         </span>
-        <span class="w-[90px] flex-shrink-0 pr-4">
+        <span class="w-[100px] flex-shrink-0 pr-4">
           <Badge theme="gray" :label="r.run_scope">
             <template #prefix>
               <FeatherIcon :name="scopeIcon(r.run_scope)" class="h-3 w-3" />
             </template>
           </Badge>
         </span>
-        <span class="w-[110px] flex-shrink-0 pr-4">
+        <span class="w-[150px] flex-shrink-0 pr-4">
           <Badge v-if="r.reference_type" theme="green" :label="r.reference_type">
             <template #prefix>
               <FeatherIcon :name="typeIcon(r.reference_type)" class="h-3 w-3" />
@@ -101,30 +110,30 @@
           </Badge>
           <span v-else class="text-ink-gray-4">—</span>
         </span>
-        <span class="w-[120px] flex-shrink-0 pr-4">
-          <Badge :theme="theme(r.status)" :variant="statusVariant(r.status)" :label="r.status">
+        <span class="w-[105px] flex-shrink-0 pr-4">
+          <Badge :theme="theme(r.status)" :label="r.status">
             <template #prefix>
               <span class="mr-1">{{ statusIcon(r.status) }}</span>
             </template>
           </Badge>
         </span>
         <span
-          class="w-[120px] flex-shrink-0 truncate pr-4 text-ink-gray-6"
+          class="w-[110px] flex-shrink-0 truncate pr-4 text-ink-gray-6"
           :title="r.start_time"
         >
           {{ dateTime(r.start_time) }}
         </span>
         <span
-          class="w-[120px] flex-shrink-0 truncate pr-4 text-ink-gray-6"
+          class="w-[110px] flex-shrink-0 truncate pr-4 text-ink-gray-6"
           :title="r.end_time"
         >
           {{ dateTime(r.end_time) }}
         </span>
-        <span class="w-[90px] flex-shrink-0 pr-4 text-right tabular-nums text-ink-gray-7">
-          {{ r.exec_time ? r.exec_time + 's' : '—' }}
+        <span class="w-[80px] flex-shrink-0 pr-4 text-right tabular-nums text-ink-gray-7">
+          {{ secs(r.exec_time) }}
         </span>
-        <span class="w-[90px] flex-shrink-0 pr-4 text-right tabular-nums text-ink-gray-7">
-          {{ r.duration ? r.duration + 's' : '—' }}
+        <span class="w-[80px] flex-shrink-0 pr-4 text-right tabular-nums text-ink-gray-7">
+          {{ secs(r.duration) }}
         </span>
         <span class="w-[56px] flex-shrink-0 text-right">
           <Button
@@ -236,6 +245,7 @@ const STORAGE_KEY = 'tc_history_filters_v1'
 const filters = reactive({ app: '', status: '', type: '', mode: '', search: '' })
 const pageSize = ref(20)
 const apps = ref([])
+const appLogos = ref({}) // app name → logo URL (real per-app SVG)
 
 // ── Quick output preview (dialog) ───────────────────────────────────────────
 const preview = reactive({ show: false, loading: false, name: '', title: '', status: '', output: '' })
@@ -391,12 +401,8 @@ function theme(status) {
   if (status === 'Passed') return 'green'
   if (status === 'Failed' || status === 'Error') return 'red'
   if (status === 'Running' || status === 'Pending') return 'orange'
-  return 'gray' // Stopped, etc.
-}
-
-// Status badge variant — Stopped uses a solid (dark) gray so it isn't colourless.
-function statusVariant(status) {
-  return status === 'Stopped' ? 'solid' : 'subtle'
+  if (status === 'Stopped') return 'orange' // interrupted — warning hue, not loud black
+  return 'gray'
 }
 
 // ── Badge meta for the App / Mode / Scope / Type columns ────────────────────
@@ -433,6 +439,11 @@ function statusIcon(status) {
   return '■' // Stopped, etc.
 }
 
+// Seconds with 2 decimals, e.g. 1.098 → "1.10s". Em-dash when missing.
+function secs(value) {
+  return value ? `${Number(value).toFixed(2)}s` : '—'
+}
+
 // Compact full date-time, e.g. "09 Jun, 3:49 PM". Full value stays in the title.
 function dateTime(value) {
   if (!value) return '—'
@@ -445,6 +456,11 @@ function dateTime(value) {
 
 async function loadApps() {
   apps.value = (await api.getInstalledApps()) || []
+  try {
+    appLogos.value = (await api.getAppLogos()) || {}
+  } catch (e) {
+    /* fall back to a generic icon */
+  }
 }
 
 restoreFilters()

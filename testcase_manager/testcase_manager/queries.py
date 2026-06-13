@@ -101,6 +101,22 @@ def get_installed_apps_list() -> list[str]:
 
 
 @frappe.whitelist()
+def get_app_logos() -> dict:
+	"""
+	Map each installed app → its logo URL (from the app's ``app_logo_url`` hook).
+
+	Used to show real app icons in the History list. Apps without the hook are
+	omitted so the UI can fall back to a generic icon.
+	"""
+	logos: dict = {}
+	for app in frappe.get_installed_apps():
+		url = frappe.get_hooks("app_logo_url", app_name=app)
+		if url:
+			logos[app] = url[-1]  # last wins, mirroring Frappe's hook resolution
+	return logos
+
+
+@frappe.whitelist()
 def get_reference_options(app: str | None = None, reference_type: str | None = None) -> list[dict]:
 	"""
 	Return the distinct references (DocTypes and/or Reports) that actually have

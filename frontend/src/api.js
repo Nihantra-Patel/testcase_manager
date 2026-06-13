@@ -8,6 +8,7 @@ const Q = 'testcase_manager.testcase_manager.queries'
 export const api = {
   // ── Read-only queries ──────────────────────────────────────────────
   getInstalledApps: () => call(`${Q}.get_installed_apps_list`),
+  getAppLogos: () => call(`${Q}.get_app_logos`),
   getReferenceOptions: (app, reference_type) =>
     call(`${Q}.get_reference_options`, { app, reference_type }),
   getTestCases: (args) => call(`${Q}.get_test_cases_for_page`, args),
