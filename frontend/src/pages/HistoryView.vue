@@ -68,7 +68,10 @@
         class="flex cursor-pointer items-center border-b border-outline-gray-1 px-8 py-2.5 text-sm transition-colors hover:bg-surface-gray-2"
         @click="$router.push(`/history/${r.name}`)"
       >
-        <span class="flex-1 min-w-[200px] truncate pr-4 font-medium text-ink-gray-9">
+        <span
+          class="flex-1 min-w-[180px] truncate pr-4 font-medium text-ink-gray-9"
+          :title="r.test_method"
+        >
           {{ r.test_method }}
         </span>
         <span class="w-[130px] flex-shrink-0 pr-4">
@@ -86,10 +89,7 @@
           </Badge>
         </span>
         <span class="w-[110px] flex-shrink-0 pr-4">
-          <Badge
-            :theme="r.realtime ? 'blue' : 'gray'"
-            :label="r.realtime ? 'Realtime' : 'Quick'"
-          >
+          <Badge theme="gray" :label="r.realtime ? 'Realtime' : 'Quick'">
             <template #prefix>
               <FeatherIcon :name="modeIcon(r.realtime)" class="h-3 w-3" />
             </template>
@@ -103,7 +103,7 @@
           </Badge>
         </span>
         <span class="w-[150px] flex-shrink-0 pr-4">
-          <Badge v-if="r.reference_type" theme="green" :label="r.reference_type">
+          <Badge v-if="r.reference_type" theme="gray" :label="r.reference_type">
             <template #prefix>
               <FeatherIcon :name="typeIcon(r.reference_type)" class="h-3 w-3" />
             </template>
