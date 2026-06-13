@@ -71,21 +71,38 @@
         <span class="flex-1 min-w-[200px] truncate pr-4 font-medium text-ink-gray-9">
           {{ r.test_method }}
         </span>
-        <span class="w-[100px] flex-shrink-0 truncate pr-4 text-ink-gray-6">{{ r.app }}</span>
+        <span class="w-[100px] flex-shrink-0 pr-4">
+          <Badge theme="gray" :label="r.app">
+            <template #prefix><FeatherIcon name="package" class="h-3 w-3" /></template>
+          </Badge>
+        </span>
         <span class="w-[100px] flex-shrink-0 pr-4">
           <Badge
             :theme="r.realtime ? 'blue' : 'gray'"
             :label="r.realtime ? 'Realtime' : 'Quick'"
-          />
+          >
+            <template #prefix>
+              <FeatherIcon :name="modeIcon(r.realtime)" class="h-3 w-3" />
+            </template>
+          </Badge>
         </span>
-        <span class="w-[90px] flex-shrink-0 truncate pr-4 text-ink-gray-6">
-          {{ r.run_scope }}
+        <span class="w-[90px] flex-shrink-0 pr-4">
+          <Badge theme="gray" :label="r.run_scope">
+            <template #prefix>
+              <FeatherIcon :name="scopeIcon(r.run_scope)" class="h-3 w-3" />
+            </template>
+          </Badge>
         </span>
-        <span class="w-[110px] flex-shrink-0 truncate pr-4 text-ink-gray-6">
-          {{ r.reference_type || '—' }}
+        <span class="w-[110px] flex-shrink-0 pr-4">
+          <Badge v-if="r.reference_type" theme="green" :label="r.reference_type">
+            <template #prefix>
+              <FeatherIcon :name="typeIcon(r.reference_type)" class="h-3 w-3" />
+            </template>
+          </Badge>
+          <span v-else class="text-ink-gray-4">—</span>
         </span>
         <span class="w-[120px] flex-shrink-0 pr-4">
-          <Badge :theme="theme(r.status)" :label="r.status">
+          <Badge :theme="theme(r.status)" :variant="statusVariant(r.status)" :label="r.status">
             <template #prefix>
               <span class="mr-1">{{ statusIcon(r.status) }}</span>
             </template>
@@ -375,6 +392,34 @@ function theme(status) {
   if (status === 'Failed' || status === 'Error') return 'red'
   if (status === 'Running' || status === 'Pending') return 'orange'
   return 'gray' // Stopped, etc.
+}
+
+// Status badge variant — Stopped uses a solid (dark) gray so it isn't colourless.
+function statusVariant(status) {
+  return status === 'Stopped' ? 'solid' : 'subtle'
+}
+
+// ── Badge meta for the App / Mode / Scope / Type columns ────────────────────
+// Each returns a FeatherIcon name; themes give every column a distinct, calm hue.
+function modeIcon(realtime) {
+  return realtime ? 'radio' : 'zap'
+}
+function scopeIcon(scope) {
+  return (
+    {
+      Method: 'code',
+      File: 'file',
+      DocType: 'box',
+      App: 'grid',
+      Batch: 'layers',
+    }[scope] || 'circle'
+  )
+}
+function typeIcon(type) {
+  if (type === 'Report') return 'bar-chart-2'
+  if (type === 'App') return 'grid'
+  if (type && type.includes('-')) return 'shuffle' // DocType-Report (mixed)
+  return 'box' // DocType
 }
 
 function isRunningStatus(status) {
