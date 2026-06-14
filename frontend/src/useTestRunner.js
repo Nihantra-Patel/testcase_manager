@@ -281,6 +281,13 @@ function createRunner() {
   function follow(run) {
     if (!run || !run.name || stopped) return
     if (currentRun.value === run.name) return // already on the live run
+    // Don't hijack the console while THIS session is active. The moment the user
+    // starts a run, startSession() sets isRunning=true (and prints the "Running… /
+    // preparing…" notice) before the API even returns currentRun. Auto-following
+    // here would call startSession() again and clearConsole() → a blank flash, and
+    // would also fight a run the user is actively watching. We only auto-advance
+    // once the session has ended (isRunning=false), e.g. between queued runs.
+    if (isRunning.value) return
     startSession(run.test_method || run.name)
     status.value = 'Running'
     const seed = (run.full_output || '').split('\n')
