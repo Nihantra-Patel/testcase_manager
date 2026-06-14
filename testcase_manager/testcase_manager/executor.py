@@ -76,6 +76,11 @@ _RUN_LOCK_TTL = 7200  # seconds; auto-expires so a crashed run can't wedge it
 _RUN_LOCK_WAIT = 7200  # max seconds to wait for our turn
 
 
+def _lock_key() -> str:
+	"""Site-scoped run-lock key, so the lock is per-site (multitenant-safe)."""
+	return f"{frappe.local.site}:{_RUN_LOCK_KEY}"
+
+
 class _run_lock:
 	"""
 	Context manager: acquire the global run lock (Redis SET NX), waiting our turn.
@@ -93,11 +98,15 @@ class _run_lock:
 		import time as _time
 
 		conn = frappe.cache()
+		key = _lock_key()
 		waited = 0
 		announced = False
 		while waited < _RUN_LOCK_WAIT:
-			# SET key token NX EX ttl → only sets if absent (atomic across workers).
-			if conn.set(_RUN_LOCK_KEY, self.token, nx=True, ex=_RUN_LOCK_TTL):
+			# Atomic SET key token NX EX ttl (set-if-absent across workers). This needs
+			# the raw redis command; set_value() can't express NX. Key is site-scoped
+			# via _lock_key(), so multitenancy is preserved.
+			# nosemgrep: frappe-semgrep-rules.rules.frappe-cache-breaks-multitenancy
+			if conn.set(key, self.token, nx=True, ex=_RUN_LOCK_TTL):
 				self.acquired = True
 				return self
 			if not announced:
@@ -115,13 +124,16 @@ class _run_lock:
 			return False
 		try:
 			conn = frappe.cache()
-			# Only release if we still own it (don't delete someone else's lock if
-			# ours expired). redis returns bytes, so decode before comparing.
-			current = conn.get(_RUN_LOCK_KEY)
+			key = _lock_key()
+			# Release only if we still own it (don't drop a lock that expired and was
+			# re-taken). Raw get/delete pairs with the raw NX set above; site-scoped key.
+			# nosemgrep: frappe-semgrep-rules.rules.frappe-cache-breaks-multitenancy
+			current = conn.get(key)
 			if isinstance(current, bytes):
 				current = current.decode()
 			if current == self.token:
-				conn.delete(_RUN_LOCK_KEY)
+				# nosemgrep: frappe-semgrep-rules.rules.frappe-cache-breaks-multitenancy
+				conn.delete(key)
 		except Exception:
 			pass
 		return False
@@ -741,6 +753,9 @@ def _write_errors_to_stream(stream: "RealtimeLineStream", result) -> None:
 
 def _publish(task_id: str, event: str, message: dict) -> None:
 	try:
+		# task_id scopes delivery to the run's "task_progress:<task_id>" room (the
+		# client subscribes to exactly that), so this is not a site-wide broadcast.
+		# nosemgrep: frappe-semgrep-rules.rules.frappe-realtime-pick-room
 		frappe.publish_realtime(event=event, message=message, task_id=task_id)
 	except Exception:
 		pass
