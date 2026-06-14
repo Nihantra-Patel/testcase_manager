@@ -247,22 +247,17 @@ onBeforeUnmount(() => runner.dispose())
 // indicator reflects overlapping background runs even ones started elsewhere.
 const activeRuns = ref(0)
 
-// Point the console at whatever test is executing right now. The runner ignores
-// this if it's already locked onto a streaming run (it only switches once that one
-// finishes), so calling it freely is safe.
+// Point the console at the test executing now. Passing the current run keeps the
+// backend locked to it while it runs, so the view doesn't flicker between runs.
 async function followLiveRun() {
   try {
-    // Pass the run we're already on so the backend keeps us locked to it while it's
-    // still executing (stable), and only hands us a different run once it finishes.
     const active = await api.getActiveRun(runner.currentRun.value)
     if (active && active.status === 'Running') runner.follow(active)
   } catch (e) {
     /* ignore */
   }
 }
-// The runner calls this the instant a followed run completes (or is stopped), so
-// the console advances to the next executing run immediately instead of waiting
-// for the next poll tick — which is what let fast in-between runs get skipped.
+// Runner calls this the moment a followed run finishes, to advance immediately.
 runner.onAdvance(followLiveRun)
 
 async function refreshActiveRuns() {
@@ -496,8 +491,8 @@ watch(
 watch(realtime, saveFilters)
 
 // ── Actions ─────────────────────────────────────────────────────────────────
-// After starting a run, refresh a few times so its Pending → Running transition
-// (and first output) shows promptly instead of waiting a full poll interval.
+// After starting a run, refresh a few times so it starts following promptly
+// instead of waiting for the next poll.
 function nudgeOwnRun() {
   refreshActiveRuns()
   setTimeout(refreshActiveRuns, 800)
@@ -507,8 +502,6 @@ async function runSelected() {
   await runner.runSelected(selected.value, records.value, realtime.value)
   nudgeOwnRun()
 }
-// Single test from a row's play button — same nudge so it follows the live run
-// promptly instead of waiting for the next poll.
 async function runOne(name, label) {
   await runner.runOne(name, label, realtime.value)
   nudgeOwnRun()

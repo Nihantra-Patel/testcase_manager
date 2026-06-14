@@ -32,13 +32,11 @@ def live_output_key(run_name: str) -> str:
 
 @frappe.whitelist()
 def get_live_output(run_name: str) -> dict:
-	"""Live snapshot of a running test's output, for the console to poll.
+	"""Live output of a running test for the console to poll.
 
-	Reads the Redis snapshot the worker writes as it runs (see
-	``RealtimeLineStream._persist_partial``) plus the run's current DB status. This
-	is the reliable path for showing the executing test's output when realtime
-	sockets don't reach the client. Once the run finishes, ``full_output`` in the DB
-	is authoritative and this key is cleared.
+	Reads the Redis snapshot the worker writes while running (see
+	``RealtimeLineStream._persist_partial``); once finished, the DB ``full_output``
+	is authoritative and the key is cleared.
 	"""
 	status, full_output, result, duration = frappe.db.get_value(
 		"Testcase Run", run_name, ["status", "full_output", "result", "duration"]
@@ -171,13 +169,9 @@ class RealtimeLineStream:
 		self._lines: list[str] = []
 		self.encoding = "utf-8"
 		self.errors = "replace"
-		# Throttle for persisting partial output so the UI can poll it live even when
-		# realtime sockets don't reach the client.
-		self._last_persist = 0.0
-		# Capture a RAW redis connection up front. During a test run frappe's request
-		# context (frappe.local / frappe.cache()) gets torn down and rebuilt, so
-		# calling frappe.cache() mid-test can fail silently — which is exactly why the
-		# live snapshot stayed empty. A direct connection sidesteps that entirely.
+		self._last_persist = 0.0  # throttle for the live-output snapshot
+		# Raw redis connection captured up front: the test run resets frappe.local
+		# mid-execution, so frappe.cache() can fail silently — a direct conn doesn't.
 		self._redis = None
 		self._redis_key = live_output_key(run_name)
 		try:
@@ -233,16 +227,10 @@ class RealtimeLineStream:
 		self._persist_partial()
 
 	def _persist_partial(self, force: bool = False) -> None:
-		"""Cache the output accumulated so far in Redis for live polling.
+		"""Snapshot output to Redis (~1x/sec) for live polling via get_live_output.
 
-		We deliberately use Redis, NOT ``frappe.db``: while tests execute they run
-		inside the test framework's own DB transaction, so a mid-run
-		``set_value("Testcase Run", ...)`` gets rolled back and the partial output
-		never lands. Redis is outside that transaction, so the live snapshot always
-		sticks. ``get_live_output`` reads this key; the authoritative ``full_output``
-		is still written to the DB once at completion.
-
-		Throttled to ~once per second so we don't hit Redis on every line.
+		Redis, not the DB: a mid-run DB write happens inside the test framework's
+		transaction and gets rolled back, so the snapshot would never land.
 		"""
 		import time
 
@@ -253,12 +241,9 @@ class RealtimeLineStream:
 		if not self._redis:
 			return
 		try:
-			# Raw SETEX on the captured connection — independent of frappe.local, which
-			# the test environment resets mid-run.
 			self._redis.set(self._redis_key, self.getvalue().encode("utf-8"), ex=3600)
 		except Exception:
-			# Best effort — a failed partial write must never break the run.
-			pass
+			pass  # best effort — never break the run on a snapshot failure
 
 	def getvalue(self) -> str:
 		return "\n".join(self._lines)

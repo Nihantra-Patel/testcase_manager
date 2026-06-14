@@ -21,9 +21,9 @@ def _guard() -> None:
 # Queues a run is routed to, sized by how many tests it runs. Smaller jobs go to
 # faster queues so a quick single test isn't stuck behind a whole-app run, and the
 # RQ timeout scales with the expected work.
-#   • 1–25 tests   → "short"   (timeout 1800s)
-#   • 26–50 tests  → "default" (timeout 2400s)
-#   • 50+  / app   → "long"    (timeout 3600s)
+#   1-25 tests  -> "short"   (timeout 1800s)
+#   26-50 tests -> "default" (timeout 2400s)
+#   50+ / app   -> "long"    (timeout 3600s)
 def _queue_for(test_count: int, is_app: bool = False) -> tuple[str, int]:
 	if is_app or test_count > 50:
 		return "long", 3600

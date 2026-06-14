@@ -23,7 +23,6 @@ function createRunner() {
   const runLabel = ref('Console')
   const currentRun = ref(null)
   const lastRun = ref(null) // survives end-of-session (for the "open log" link)
-  const logName = ref(null)
   const isRunning = ref(false)
   // True only while a Quick (inline) run is blocking the request. Realtime runs
   // are background jobs that queue via the worker lock, so they don't set this —
@@ -38,21 +37,14 @@ function createRunner() {
   let stopped = false
   let session = null
   let pendingNext = null
-  // True while the console is locked onto an auto-followed run (vs a run the user
-  // started directly). Used so completion of a followed run can immediately advance
-  // to the next executing one instead of waiting for the next poll tick (which is
-  // what let fast in-between runs get skipped).
-  let autoFollowing = false
-  // Callback the page registers to answer "what run is executing now?" so the
-  // runner can advance the moment the current followed run finishes.
+  let autoFollowing = false // console is on an auto-followed run, not one the user started
+  // Page-registered callback returning the run executing now, so we can advance
+  // the instant a followed run finishes instead of waiting for the next poll.
   let advanceFn = null
   function onAdvance(fn) {
     advanceFn = fn
   }
-  // Flips true once a real test_output event has arrived for the current run, i.e.
-  // it's genuinely executing (not just queued/"waiting"). Lets auto-follow tell a
-  // live run apart from a Pending one so it can switch the console to whatever is
-  // actually running.
+  // True once real output has arrived for the current run (it's executing, not queued).
   const streamStarted = ref(false)
 
   function appendLine(text) {
@@ -71,7 +63,6 @@ function createRunner() {
     summary.show = false
     summary.stopped = false
     status.value = ''
-    logName.value = null
     runLabel.value = 'Console'
   }
 
@@ -114,12 +105,9 @@ function createRunner() {
     startOutputPoll(runName)
   }
 
-  // ── Live output polling (reliable fallback for realtime sockets) ────────────
-  // Realtime socket delivery can fail to reach the client (proxy/websocket
-  // issues), leaving the console stuck on "Waiting for live output…". To make the
-  // live view robust, we ALSO poll the worker's Redis output snapshot (written ~1×
-  // per second as the test runs) and render from it. Whichever source delivers
-  // more lines wins, so sockets stay an optimization, not a requirement.
+  // Poll the worker's live output snapshot (get_live_output) so the console works
+  // even when realtime sockets don't reach the client. The fuller source wins, so
+  // sockets stay an optimization.
   let outputPoll = null
   function stopOutputPoll() {
     if (outputPoll) {
@@ -143,8 +131,7 @@ function createRunner() {
       if (!doc || currentRun.value !== runName) return
       const seed = (doc.output || '').split('\n')
       if (seed.length === 1 && seed[0] === '') seed.length = 0
-      // Render the persisted output if it's ahead of what we've shown (covers the
-      // case where no socket lines arrived at all, and where the DB simply has more).
+      // Render the snapshot when it's ahead of what's shown (or nothing streamed yet).
       const hasRealLines = streamStarted.value
       if (seed.length && (!hasRealLines || seed.length > lines.value.length)) {
         lines.value = []
@@ -158,8 +145,7 @@ function createRunner() {
         streamStarted.value = true
         status.value = 'Running'
       }
-      // The run finished but we never got a completion event — wrap it up from the
-      // DB so the console doesn't hang and auto-follow advances.
+      // Finished without a completion event — wrap it up so the console doesn't hang.
       if (['Passed', 'Failed', 'Error', 'Stopped'].includes(doc.status)) {
         stopOutputPoll()
         const counts = parseCounts(doc.result)
@@ -240,14 +226,11 @@ function createRunner() {
     if (data.duration) appendLine(`Duration: ${data.duration}s`)
 
     renderSummary(data.status)
-    if (data.log_name) logName.value = data.log_name
     autoFollowing = false
     endSession()
 
-    // The run we were showing just finished — immediately ask the page for the next
-    // executing run so the console advances without waiting for the poll tick. This
-    // is what stops fast in-between runs from being skipped. Applies whether the
-    // finished run was auto-followed or one the user started directly.
+    // Advance to the next executing run now (not on the next poll), so fast
+    // in-between runs aren't skipped.
     if (advanceFn) Promise.resolve(advanceFn()).catch(() => {})
 
     if (pendingNext) {
@@ -274,7 +257,6 @@ function createRunner() {
     }
     if (result.duration) appendLine(`Duration: ${result.duration}s`)
     renderSummary(result.status)
-    if (result.log_name) logName.value = result.log_name
     endSession()
   }
 
@@ -367,37 +349,16 @@ function createRunner() {
     subscribe(run.name)
   }
 
-  // Auto-follow the test that is actually executing right now, advancing to the
-  // next as each finishes (or when the user stops the current one).
-  //
-  // `run` is the live process the backend reports as executing (get_active_run()
-  // returns the oldest Running row). The console tracks it so the user always sees
-  // which test is running, passing or failing — not a static "preparing…" notice.
-  //
-  // `run` is ALWAYS the run a worker is truly executing (get_active_run reads RQ's
-  // StartedJobRegistry). So the rule is simple and robust:
-  //   • If it's the run we're already showing → do nothing.
-  //   • Otherwise our current run is NOT the executing one (it's queued / finished),
-  //     so switch to the executing run — even if our queued run printed a line like
-  //     "Another run is in progress — waiting…" (that's not real progress, and we
-  //     must not get stuck on it).
+  // Switch the console to the run a worker is currently executing. `run` always
+  // comes from get_active_run (RQ's StartedJobRegistry), so a name mismatch means
+  // our current run isn't the live one — switch, even if it printed a "waiting…"
+  // line. No-op if we're already on it.
   function follow(run) {
     if (!run || !run.name) return
-    if (currentRun.value === run.name) return // already on the live (executing) run
-    // Switch the console to the live run: clear, seed its saved output, subscribe.
+    if (currentRun.value === run.name) return
     autoFollowing = true
-    stopped = false
-    clearConsole()
-    session = { active: true, passed: 0, failed: 0, errors: 0 }
-    progress.done = 0
-    progress.total = 0
-    progress.passed = 0
-    progress.failed = 0
-    progress.errors = 0
-    isRunning.value = true
-    streamStarted.value = false
     const label = run.test_method || run.name
-    runLabel.value = label
+    startSession(label)
     status.value = 'Running'
     const seed = (run.full_output || '').split('\n')
     if (seed.length === 1 && seed[0] === '') seed.length = 0
@@ -408,9 +369,6 @@ function createRunner() {
       })
       streamStarted.value = true
     } else {
-      // Name the run that's executing so the user knows exactly what's running.
-      // `test_method` already encodes the type: a single test method name, an
-      // "N tests (batch)" label, or "Entire test suite for: <app>".
       appendLine(`▶ Running: ${label}`)
       appendLine('Waiting for live output…')
       appendLine('')
@@ -444,9 +402,8 @@ function createRunner() {
     summary.ok = false
     summary.stopped = true
     endSession()
-    // Re-arm auto-follow: stopping this run shouldn't freeze the console — pick up
-    // whatever test is executing next right away. (We only set `stopped` to guard
-    // the in-flight completion handlers above; clear it now.)
+    // `stopped` only guarded the in-flight handlers above; clear it and advance to
+    // the next executing run so stopping doesn't freeze the console.
     stopped = false
     if (advanceFn) Promise.resolve(advanceFn()).catch(() => {})
   }
@@ -457,12 +414,10 @@ function createRunner() {
     runLabel,
     currentRun,
     lastRun,
-    logName,
     isRunning,
     inlineRunning,
     summary,
     progress,
-    clearConsole,
     resume,
     follow,
     onAdvance,

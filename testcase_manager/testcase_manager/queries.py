@@ -160,17 +160,11 @@ def get_run_count(filters: str | dict | None = None) -> dict:
 
 
 def _run_name_from_job_id(job_id: str) -> str | None:
-	"""Extract the Testcase Run name from one of our RQ job ids.
-
-	Runs are enqueued as ``tc_run_<name>`` (single/app) or ``tc_batch_<name>``
-	(batch). Frappe namespaces job ids as ``<site>::<job_id>``, so strip that first.
-	"""
+	"""Map an RQ job id (``<site>||tc_run_<name>`` / ``tc_batch_<name>``) → run name."""
 	if not job_id:
 		return None
-	# Frappe namespaces job ids as "<site>||<job_id>" (older builds used "::").
-	# Take whatever follows the last separator, then strip our prefix.
 	tail = job_id
-	for sep in ("||", "::"):
+	for sep in ("||", "::"):  # current builds use "||"; older ones used "::"
 		if sep in tail:
 			tail = tail.rsplit(sep, 1)[-1]
 	for prefix in ("tc_run_", "tc_batch_"):
@@ -180,27 +174,21 @@ def _run_name_from_job_id(job_id: str) -> str | None:
 
 
 def _executing_run_names() -> list[str]:
-	"""Run names a worker is ACTIVELY executing right now, newest first.
+	"""Run names a worker is currently executing (newest first), read from RQ.
 
-	This reads RQ's StartedJobRegistry — the authoritative list of jobs a worker has
-	picked up and is currently running — instead of the Testcase Run ``status``
-	field, which can be stale (a crashed or superseded run can be left marked
-	"Running" in the DB even though no worker is processing it). This is what lets
-	the console follow the test that's truly running.
+	Uses RQ's StartedJobRegistry, not the Testcase Run ``status`` field which can be
+	left stale (a crashed run stays "Running" in the DB though no worker has it).
 	"""
 	try:
+		from frappe.utils.background_jobs import get_queue, get_redis_conn
 		from rq.job import Job
 		from rq.registry import StartedJobRegistry
 
-		from frappe.utils.background_jobs import get_redis_conn, get_queue
-
 		conn = get_redis_conn()
-		# Runs are routed across short/default/long by test count, so scan all three.
 		names: list[tuple] = []
-		for qname in ("short", "default", "long"):
+		for qname in ("short", "default", "long"):  # runs are routed across all three
 			try:
-				registry = StartedJobRegistry(queue=get_queue(qname))
-				job_ids = registry.get_job_ids()
+				job_ids = StartedJobRegistry(queue=get_queue(qname)).get_job_ids()
 			except Exception:
 				continue
 			for jid in job_ids:
@@ -208,12 +196,10 @@ def _executing_run_names() -> list[str]:
 				if not name:
 					continue
 				try:
-					job = Job.fetch(jid, connection=conn)
-					started = job.started_at
+					started = Job.fetch(jid, connection=conn).started_at
 				except Exception:
 					started = None
 				names.append((started, name))
-		# Newest-started first so the console shows the most recently picked-up run.
 		names.sort(key=lambda t: (t[0] is not None, t[0]), reverse=True)
 		return [n for _, n in names]
 	except Exception:
@@ -222,19 +208,12 @@ def _executing_run_names() -> list[str]:
 
 @frappe.whitelist()
 def get_active_run(current: str | None = None) -> dict | None:
-	"""
-	The run a worker is actually executing right now, if any.
+	"""The run a worker is executing right now (from RQ, not the stale DB status).
 
-	We trust RQ's StartedJobRegistry (the real running jobs) over the DB status
-	field, which can be left stale.
-
-	``current`` is the run the console is currently following. With several workers,
-	multiple runs execute in parallel; to keep the console STABLE (not flickering
-	between them) we keep returning ``current`` for as long as it's still executing,
-	and only move on to another executing run once it finishes. When ``current`` is
-	not given or no longer running, we return the most recently started executing
-	run. Falls back to the oldest DB ``Pending``/``Running`` row only when RQ reports
-	nothing executing (inline runs, or the window before a worker picks one up).
+	``current`` is the run the console already follows; we stick with it while it's
+	still executing so the view doesn't flicker between parallel runs, advancing to
+	another only once it finishes. Falls back to the oldest DB Pending/Running when
+	RQ reports nothing executing (inline runs, or before a worker picks one up).
 	"""
 	run = frappe.qb.DocType("Testcase Run")
 
@@ -248,14 +227,11 @@ def get_active_run(current: str | None = None) -> dict | None:
 		)
 		row = rows[0] if rows else None
 		if row:
-			# The DB status may lag; if a worker is executing it, present it as Running
-			# so the client follows it.
-			row["status"] = "Running"
+			row["status"] = "Running"  # DB status may lag; a worker has it, so it's running
 		return row
 
 	executing = _executing_run_names()
-	# Stay on the run we're already following while it's still executing.
-	if current and current in executing:
+	if current and current in executing:  # stay on the run we're already following
 		row = _fetch(current)
 		if row:
 			return row
@@ -264,8 +240,6 @@ def get_active_run(current: str | None = None) -> dict | None:
 		if row:
 			return row
 
-	# Nothing executing per RQ — fall back to the DB (covers inline runs and the
-	# brief window before a worker picks up a freshly-queued run).
 	def _oldest(status: str):
 		rows = (
 			frappe.qb.from_(run)
