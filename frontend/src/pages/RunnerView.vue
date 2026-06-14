@@ -250,6 +250,14 @@ async function refreshActiveRuns() {
   try {
     const res = await api.getRunCount({ status: ['in', ['Running', 'Pending']] })
     activeRuns.value = res?.count || 0
+    // Keep the console pointed at whatever run is actually executing right now. As
+    // each queued run finishes, get_active_run() returns the next executing one and
+    // the console advances to it automatically — so the terminal always shows the
+    // real, live process instead of a queued/finished run.
+    if (activeRuns.value > 0) {
+      const active = await api.getActiveRun()
+      if (active) runner.follow(active)
+    }
   } catch (e) {
     /* ignore */
   }

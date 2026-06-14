@@ -162,19 +162,29 @@ def get_run_count(filters: str | dict | None = None) -> dict:
 @frappe.whitelist()
 def get_active_run() -> dict | None:
 	"""
-	The most recent still-in-progress run (status Running/Pending), if any.
+	The run the console should be following right now, if any.
 
-	Lets the UI reconnect and resume streaming after a page reload — it returns
-	the run name, its label, and the output already saved so the console can be
-	seeded before live events take over.
+	With several runs queued, the one actually executing in a worker is the one in
+	status ``Running``; the rest sit in ``Pending``. We therefore prefer the oldest
+	``Running`` row (the one a worker picked up first) and only fall back to the
+	oldest ``Pending`` when nothing is executing yet. This lets the UI auto-follow
+	the live process and advance to the next as each finishes, instead of being
+	stuck on whichever run the user happened to start.
+
+	Returns the run name, its label, status, and the output already saved so the
+	console can be seeded before live events take over.
 	"""
 	run = frappe.qb.DocType("Testcase Run")
-	rows = (
-		frappe.qb.from_(run)
-		.select(run.name, run.test_method, run.status, run.full_output)
-		.where(run.status.isin(["Running", "Pending"]))
-		.orderby(run.creation, order=frappe.qb.desc)
-		.limit(1)
-		.run(as_dict=True)
-	)
-	return rows[0] if rows else None
+
+	def _oldest(status: str):
+		rows = (
+			frappe.qb.from_(run)
+			.select(run.name, run.test_method, run.status, run.full_output)
+			.where(run.status == status)
+			.orderby(run.creation, order=frappe.qb.asc)
+			.limit(1)
+			.run(as_dict=True)
+		)
+		return rows[0] if rows else None
+
+	return _oldest("Running") or _oldest("Pending")

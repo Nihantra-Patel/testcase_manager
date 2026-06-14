@@ -268,6 +268,31 @@ function createRunner() {
     subscribe(run.name)
   }
 
+  // Auto-follow whichever run is currently executing. Called repeatedly (polled)
+  // as the queue advances: the backend's get_active_run() prefers the run that is
+  // actually executing (status Running) over ones merely queued (Pending), so the
+  // `run` passed here is the live process. When it differs from what the console
+  // is showing, switch — re-seeding from its saved output and re-subscribing.
+  //
+  // This is what makes the console track the real process: if the user started a
+  // batch that's still Pending behind 4 others, we follow the executing one and
+  // advance to the next as each completes, instead of sitting on the user's queued
+  // run showing "waiting for it to finish…".
+  function follow(run) {
+    if (!run || !run.name || stopped) return
+    if (currentRun.value === run.name) return // already on the live run
+    startSession(run.test_method || run.name)
+    status.value = 'Running'
+    const seed = (run.full_output || '').split('\n')
+    if (seed.length === 1 && seed[0] === '') seed.length = 0
+    seed.forEach((text) => {
+      tally(stripAnsi(text))
+      appendLine(text)
+    })
+    lastRun.value = run.name
+    subscribe(run.name)
+  }
+
   async function stop() {
     stopped = true
     const running = currentRun.value
@@ -306,6 +331,7 @@ function createRunner() {
     progress,
     clearConsole,
     resume,
+    follow,
     runOne,
     runSelected,
     runEntireApp,
