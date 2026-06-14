@@ -25,6 +25,44 @@ def _strip_ansi(text: str) -> str:
 	return _ANSI_RE.sub("", text or "")
 
 
+def live_output_key(run_name: str) -> str:
+	"""Redis key holding the live (partial) output of an executing run."""
+	return f"testcase_manager:live_output:{run_name}"
+
+
+@frappe.whitelist()
+def get_live_output(run_name: str) -> dict:
+	"""Live snapshot of a running test's output, for the console to poll.
+
+	Reads the Redis snapshot the worker writes as it runs (see
+	``RealtimeLineStream._persist_partial``) plus the run's current DB status. This
+	is the reliable path for showing the executing test's output when realtime
+	sockets don't reach the client. Once the run finishes, ``full_output`` in the DB
+	is authoritative and this key is cleared.
+	"""
+	status, full_output, result, duration = frappe.db.get_value(
+		"Testcase Run", run_name, ["status", "full_output", "result", "duration"]
+	) or (None, None, None, None)
+	live = ""
+	try:
+		from frappe.utils.background_jobs import get_redis_conn
+
+		raw = get_redis_conn().get(live_output_key(run_name))
+		if raw:
+			live = raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
+	except Exception:
+		live = ""
+	# Prefer the longer of (live snapshot, saved output) so we never go backwards.
+	output = full_output if (full_output and len(full_output) >= len(live)) else live
+	return {
+		"name": run_name,
+		"status": status,
+		"output": output or "",
+		"result": result,
+		"duration": duration,
+	}
+
+
 def _sum_exec_time(all_results: list) -> float:
 	"""Actual test execution time across suites (the unittest 'Ran in' window)."""
 	return round(sum(getattr(r, "_tc_exec_time", 0) or 0 for r in all_results), 3)
@@ -133,6 +171,21 @@ class RealtimeLineStream:
 		self._lines: list[str] = []
 		self.encoding = "utf-8"
 		self.errors = "replace"
+		# Throttle for persisting partial output so the UI can poll it live even when
+		# realtime sockets don't reach the client.
+		self._last_persist = 0.0
+		# Capture a RAW redis connection up front. During a test run frappe's request
+		# context (frappe.local / frappe.cache()) gets torn down and rebuilt, so
+		# calling frappe.cache() mid-test can fail silently — which is exactly why the
+		# live snapshot stayed empty. A direct connection sidesteps that entirely.
+		self._redis = None
+		self._redis_key = live_output_key(run_name)
+		try:
+			from frappe.utils.background_jobs import get_redis_conn
+
+			self._redis = get_redis_conn()
+		except Exception:
+			self._redis = None
 
 	# ── Standard stream interface ─────────────────────────────────────────
 
@@ -177,6 +230,35 @@ class RealtimeLineStream:
 		line = _strip_ansi(line)
 		self._lines.append(line)
 		_publish(self.task_id, "test_output", {"run_name": self.run_name, "line": line})
+		self._persist_partial()
+
+	def _persist_partial(self, force: bool = False) -> None:
+		"""Cache the output accumulated so far in Redis for live polling.
+
+		We deliberately use Redis, NOT ``frappe.db``: while tests execute they run
+		inside the test framework's own DB transaction, so a mid-run
+		``set_value("Testcase Run", ...)`` gets rolled back and the partial output
+		never lands. Redis is outside that transaction, so the live snapshot always
+		sticks. ``get_live_output`` reads this key; the authoritative ``full_output``
+		is still written to the DB once at completion.
+
+		Throttled to ~once per second so we don't hit Redis on every line.
+		"""
+		import time
+
+		now = time.monotonic()
+		if not force and (now - self._last_persist) < 1.0:
+			return
+		self._last_persist = now
+		if not self._redis:
+			return
+		try:
+			# Raw SETEX on the captured connection — independent of frappe.local, which
+			# the test environment resets mid-run.
+			self._redis.set(self._redis_key, self.getvalue().encode("utf-8"), ex=3600)
+		except Exception:
+			# Best effort — a failed partial write must never break the run.
+			pass
 
 	def getvalue(self) -> str:
 		return "\n".join(self._lines)
@@ -325,6 +407,13 @@ def execute_test_case_job(run_name: str) -> None:
 		)
 	finally:
 		_ensure_scheduler_enabled()
+		# Drop the live-output snapshot; the DB full_output is authoritative now.
+		try:
+			from frappe.utils.background_jobs import get_redis_conn
+
+			get_redis_conn().delete(live_output_key(run_name))
+		except Exception:
+			pass
 
 
 def execute_test_batch_job(run_name: str, test_cases: list[str]) -> None:
@@ -451,6 +540,13 @@ def execute_test_batch_job(run_name: str, test_cases: list[str]) -> None:
 		)
 	finally:
 		_ensure_scheduler_enabled()
+		# Drop the live-output snapshot; the DB full_output is authoritative now.
+		try:
+			from frappe.utils.background_jobs import get_redis_conn
+
+			get_redis_conn().delete(live_output_key(run_name))
+		except Exception:
+			pass
 
 
 # ---------------------------------------------------------------------------

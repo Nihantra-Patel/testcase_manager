@@ -103,7 +103,7 @@
                       ? 'Run this test'
                       : 'A run is in progress — Quick run is disabled (switch to Realtime to queue it)'
                   "
-                  @click="runner.runOne(tc.name, tc.test_method, realtime)"
+                  @click="runOne(tc.name, tc.test_method)"
                 >
                   <FeatherIcon name="play" class="h-3 w-3" />
                 </Button>
@@ -246,18 +246,30 @@ onBeforeUnmount(() => runner.dispose())
 // Live count of in-progress runs (Running/Pending) across the site, polled so the
 // indicator reflects overlapping background runs even ones started elsewhere.
 const activeRuns = ref(0)
+
+// Point the console at whatever test is executing right now. The runner ignores
+// this if it's already locked onto a streaming run (it only switches once that one
+// finishes), so calling it freely is safe.
+async function followLiveRun() {
+  try {
+    // Pass the run we're already on so the backend keeps us locked to it while it's
+    // still executing (stable), and only hands us a different run once it finishes.
+    const active = await api.getActiveRun(runner.currentRun.value)
+    if (active && active.status === 'Running') runner.follow(active)
+  } catch (e) {
+    /* ignore */
+  }
+}
+// The runner calls this the instant a followed run completes (or is stopped), so
+// the console advances to the next executing run immediately instead of waiting
+// for the next poll tick — which is what let fast in-between runs get skipped.
+runner.onAdvance(followLiveRun)
+
 async function refreshActiveRuns() {
   try {
     const res = await api.getRunCount({ status: ['in', ['Running', 'Pending']] })
     activeRuns.value = res?.count || 0
-    // Keep the console pointed at whatever run is actually executing right now. As
-    // each queued run finishes, get_active_run() returns the next executing one and
-    // the console advances to it automatically — so the terminal always shows the
-    // real, live process instead of a queued/finished run.
-    if (activeRuns.value > 0) {
-      const active = await api.getActiveRun()
-      if (active) runner.follow(active)
-    }
+    if (activeRuns.value > 0) await followLiveRun()
   } catch (e) {
     /* ignore */
   }
@@ -484,8 +496,22 @@ watch(
 watch(realtime, saveFilters)
 
 // ── Actions ─────────────────────────────────────────────────────────────────
-function runSelected() {
-  runner.runSelected(selected.value, records.value, realtime.value)
+// After starting a run, refresh a few times so its Pending → Running transition
+// (and first output) shows promptly instead of waiting a full poll interval.
+function nudgeOwnRun() {
+  refreshActiveRuns()
+  setTimeout(refreshActiveRuns, 800)
+  setTimeout(refreshActiveRuns, 1800)
+}
+async function runSelected() {
+  await runner.runSelected(selected.value, records.value, realtime.value)
+  nudgeOwnRun()
+}
+// Single test from a row's play button — same nudge so it follows the live run
+// promptly instead of waiting for the next poll.
+async function runOne(name, label) {
+  await runner.runOne(name, label, realtime.value)
+  nudgeOwnRun()
 }
 function confirmRunApp() {
   showRunAppDialog.value = true

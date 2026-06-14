@@ -13,7 +13,11 @@ export const api = {
     call(`${Q}.get_reference_options`, { app, reference_type }),
   getTestCases: (args) => call(`${Q}.get_test_cases_for_page`, args),
   getRunCount: (filters) => call(`${Q}.get_run_count`, { filters: JSON.stringify(filters || {}) }),
-  getActiveRun: () => call(`${Q}.get_active_run`),
+  getActiveRun: (current) => call(`${Q}.get_active_run`, current ? { current } : {}),
+  // Live (partial) output of a running test, read from the worker's Redis snapshot
+  // so it works even when realtime sockets don't reach the client.
+  getLiveOutput: (run_name) =>
+    call('testcase_manager.testcase_manager.executor.get_live_output', { run_name }),
 
   // ── Execution ──────────────────────────────────────────────────────
   runTestCase: (test_case, run_scope = 'Method', background = 0) =>

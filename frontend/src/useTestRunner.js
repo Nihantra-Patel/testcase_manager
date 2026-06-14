@@ -38,9 +38,32 @@ function createRunner() {
   let stopped = false
   let session = null
   let pendingNext = null
+  // True while the console is locked onto an auto-followed run (vs a run the user
+  // started directly). Used so completion of a followed run can immediately advance
+  // to the next executing one instead of waiting for the next poll tick (which is
+  // what let fast in-between runs get skipped).
+  let autoFollowing = false
+  // Callback the page registers to answer "what run is executing now?" so the
+  // runner can advance the moment the current followed run finishes.
+  let advanceFn = null
+  function onAdvance(fn) {
+    advanceFn = fn
+  }
+  // Flips true once a real test_output event has arrived for the current run, i.e.
+  // it's genuinely executing (not just queued/"waiting"). Lets auto-follow tell a
+  // live run apart from a Pending one so it can switch the console to whatever is
+  // actually running.
+  const streamStarted = ref(false)
 
   function appendLine(text) {
     lines.value.push({ text: stripAnsi(text ?? '') })
+  }
+
+  // Parse "Passed: X, Failed: Y, Errors: Z" (the run's stored result) into counts.
+  function parseCounts(result) {
+    const m = (result || '').match(/Passed:\s*(\d+),\s*Failed:\s*(\d+),\s*Errors:\s*(\d+)/i)
+    if (!m) return { passed: 0, failed: 0, errors: 0 }
+    return { passed: +m[1], failed: +m[2], errors: +m[3] }
   }
 
   function clearConsole() {
@@ -67,6 +90,7 @@ function createRunner() {
 
   function onOutput(data) {
     if (data.run_name !== currentRun.value) return
+    streamStarted.value = true // real output → this run is executing, not queued
     tally(stripAnsi(data.line ?? ''))
     appendLine(data.line)
   }
@@ -87,6 +111,72 @@ function createRunner() {
     }
     currentRun.value = runName
     socket.emit('task_subscribe', runName)
+    startOutputPoll(runName)
+  }
+
+  // ── Live output polling (reliable fallback for realtime sockets) ────────────
+  // Realtime socket delivery can fail to reach the client (proxy/websocket
+  // issues), leaving the console stuck on "Waiting for live output…". To make the
+  // live view robust, we ALSO poll the worker's Redis output snapshot (written ~1×
+  // per second as the test runs) and render from it. Whichever source delivers
+  // more lines wins, so sockets stay an optimization, not a requirement.
+  let outputPoll = null
+  function stopOutputPoll() {
+    if (outputPoll) {
+      clearInterval(outputPoll)
+      outputPoll = null
+    }
+  }
+  function startOutputPoll(runName) {
+    stopOutputPoll()
+    outputPoll = setInterval(async () => {
+      if (stopped || currentRun.value !== runName) {
+        stopOutputPoll()
+        return
+      }
+      let doc
+      try {
+        doc = await api.getLiveOutput(runName)
+      } catch (e) {
+        return
+      }
+      if (!doc || currentRun.value !== runName) return
+      const seed = (doc.output || '').split('\n')
+      if (seed.length === 1 && seed[0] === '') seed.length = 0
+      // Render the persisted output if it's ahead of what we've shown (covers the
+      // case where no socket lines arrived at all, and where the DB simply has more).
+      const hasRealLines = streamStarted.value
+      if (seed.length && (!hasRealLines || seed.length > lines.value.length)) {
+        lines.value = []
+        progress.done = 0
+        progress.passed = 0
+        progress.failed = 0
+        seed.forEach((text) => {
+          tally(stripAnsi(text))
+          appendLine(text)
+        })
+        streamStarted.value = true
+        status.value = 'Running'
+      }
+      // The run finished but we never got a completion event — wrap it up from the
+      // DB so the console doesn't hang and auto-follow advances.
+      if (['Passed', 'Failed', 'Error', 'Stopped'].includes(doc.status)) {
+        stopOutputPoll()
+        const counts = parseCounts(doc.result)
+        handleComplete(
+          {
+            run_name: runName,
+            status: doc.status,
+            full_output: doc.output,
+            duration: doc.duration,
+            passed: counts.passed,
+            failed: counts.failed,
+            errors: counts.errors,
+          },
+          false,
+        )
+      }
+    }, 1000)
   }
 
   // ── Session lifecycle ───────────────────────────────────────────────────
@@ -100,6 +190,7 @@ function createRunner() {
     progress.failed = 0
     progress.errors = 0
     isRunning.value = true
+    streamStarted.value = false
     runLabel.value = label
     status.value = 'Queuing…'
   }
@@ -108,6 +199,7 @@ function createRunner() {
     if (session) session.active = false
     isRunning.value = false
     currentRun.value = null
+    stopOutputPoll()
   }
 
   function renderSummary(status_label) {
@@ -149,7 +241,14 @@ function createRunner() {
 
     renderSummary(data.status)
     if (data.log_name) logName.value = data.log_name
+    autoFollowing = false
     endSession()
+
+    // The run we were showing just finished — immediately ask the page for the next
+    // executing run so the console advances without waiting for the poll tick. This
+    // is what stops fast in-between runs from being skipped. Applies whether the
+    // finished run was auto-followed or one the user started directly.
+    if (advanceFn) Promise.resolve(advanceFn()).catch(() => {})
 
     if (pendingNext) {
       const next = pendingNext
@@ -268,34 +367,54 @@ function createRunner() {
     subscribe(run.name)
   }
 
-  // Auto-follow whichever run is currently executing. Called repeatedly (polled)
-  // as the queue advances: the backend's get_active_run() prefers the run that is
-  // actually executing (status Running) over ones merely queued (Pending), so the
-  // `run` passed here is the live process. When it differs from what the console
-  // is showing, switch — re-seeding from its saved output and re-subscribing.
+  // Auto-follow the test that is actually executing right now, advancing to the
+  // next as each finishes (or when the user stops the current one).
   //
-  // This is what makes the console track the real process: if the user started a
-  // batch that's still Pending behind 4 others, we follow the executing one and
-  // advance to the next as each completes, instead of sitting on the user's queued
-  // run showing "waiting for it to finish…".
+  // `run` is the live process the backend reports as executing (get_active_run()
+  // returns the oldest Running row). The console tracks it so the user always sees
+  // which test is running, passing or failing — not a static "preparing…" notice.
+  //
+  // `run` is ALWAYS the run a worker is truly executing (get_active_run reads RQ's
+  // StartedJobRegistry). So the rule is simple and robust:
+  //   • If it's the run we're already showing → do nothing.
+  //   • Otherwise our current run is NOT the executing one (it's queued / finished),
+  //     so switch to the executing run — even if our queued run printed a line like
+  //     "Another run is in progress — waiting…" (that's not real progress, and we
+  //     must not get stuck on it).
   function follow(run) {
-    if (!run || !run.name || stopped) return
-    if (currentRun.value === run.name) return // already on the live run
-    // Don't hijack the console while THIS session is active. The moment the user
-    // starts a run, startSession() sets isRunning=true (and prints the "Running… /
-    // preparing…" notice) before the API even returns currentRun. Auto-following
-    // here would call startSession() again and clearConsole() → a blank flash, and
-    // would also fight a run the user is actively watching. We only auto-advance
-    // once the session has ended (isRunning=false), e.g. between queued runs.
-    if (isRunning.value) return
-    startSession(run.test_method || run.name)
+    if (!run || !run.name) return
+    if (currentRun.value === run.name) return // already on the live (executing) run
+    // Switch the console to the live run: clear, seed its saved output, subscribe.
+    autoFollowing = true
+    stopped = false
+    clearConsole()
+    session = { active: true, passed: 0, failed: 0, errors: 0 }
+    progress.done = 0
+    progress.total = 0
+    progress.passed = 0
+    progress.failed = 0
+    progress.errors = 0
+    isRunning.value = true
+    streamStarted.value = false
+    const label = run.test_method || run.name
+    runLabel.value = label
     status.value = 'Running'
     const seed = (run.full_output || '').split('\n')
     if (seed.length === 1 && seed[0] === '') seed.length = 0
-    seed.forEach((text) => {
-      tally(stripAnsi(text))
-      appendLine(text)
-    })
+    if (seed.length) {
+      seed.forEach((text) => {
+        tally(stripAnsi(text))
+        appendLine(text)
+      })
+      streamStarted.value = true
+    } else {
+      // Name the run that's executing so the user knows exactly what's running.
+      // `test_method` already encodes the type: a single test method name, an
+      // "N tests (batch)" label, or "Entire test suite for: <app>".
+      appendLine(`▶ Running: ${label}`)
+      appendLine('Waiting for live output…')
+      appendLine('')
+    }
     lastRun.value = run.name
     subscribe(run.name)
   }
@@ -316,6 +435,8 @@ function createRunner() {
       }
     }
     currentRun.value = null
+    streamStarted.value = false
+    autoFollowing = false
     appendLine('')
     appendLine('■ Stopped by user.')
     status.value = 'Stopped'
@@ -323,6 +444,11 @@ function createRunner() {
     summary.ok = false
     summary.stopped = true
     endSession()
+    // Re-arm auto-follow: stopping this run shouldn't freeze the console — pick up
+    // whatever test is executing next right away. (We only set `stopped` to guard
+    // the in-flight completion handlers above; clear it now.)
+    stopped = false
+    if (advanceFn) Promise.resolve(advanceFn()).catch(() => {})
   }
 
   return {
@@ -339,6 +465,7 @@ function createRunner() {
     clearConsole,
     resume,
     follow,
+    onAdvance,
     runOne,
     runSelected,
     runEntireApp,

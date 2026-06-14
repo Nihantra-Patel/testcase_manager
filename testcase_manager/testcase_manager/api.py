@@ -18,6 +18,20 @@ def _guard() -> None:
 	frappe.only_for(ALLOWED_ROLES)
 
 
+# Queues a run is routed to, sized by how many tests it runs. Smaller jobs go to
+# faster queues so a quick single test isn't stuck behind a whole-app run, and the
+# RQ timeout scales with the expected work.
+#   • 1–25 tests   → "short"   (timeout 1800s)
+#   • 26–50 tests  → "default" (timeout 2400s)
+#   • 50+  / app   → "long"    (timeout 3600s)
+def _queue_for(test_count: int, is_app: bool = False) -> tuple[str, int]:
+	if is_app or test_count > 50:
+		return "long", 3600
+	if test_count > 25:
+		return "default", 2400
+	return "short", 1800
+
+
 # ---------------------------------------------------------------------------
 # Test Execution
 # ---------------------------------------------------------------------------
@@ -86,10 +100,12 @@ def run_test_case(test_case: str, run_scope: str = "Method", background: int | s
 	frappe.db.commit()
 
 	if use_bg:
+		# A whole-app run → long; a single method/file → short.
+		queue, timeout = _queue_for(1, is_app=(run_scope == "App"))
 		frappe.enqueue(
 			"testcase_manager.testcase_manager.executor.execute_test_case_job",
-			queue="long",
-			timeout=1800,
+			queue=queue,
+			timeout=timeout,
 			job_id=f"tc_run_{run.name}",
 			run_name=run.name,
 		)
@@ -180,10 +196,11 @@ def run_test_batch(test_cases: str | list, background: int | str | bool = 0) -> 
 	frappe.db.commit()
 
 	if use_bg:
+		queue, timeout = _queue_for(len(test_cases))
 		frappe.enqueue(
 			"testcase_manager.testcase_manager.executor.execute_test_batch_job",
-			queue="long",
-			timeout=3600,
+			queue=queue,
+			timeout=timeout,
 			job_id=f"tc_batch_{run.name}",
 			run_name=run.name,
 			test_cases=test_cases,
