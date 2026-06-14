@@ -17,7 +17,31 @@
     <div v-if="run.loading && !doc" class="p-6 text-sm text-ink-gray-5">Loading…</div>
 
     <template v-else-if="doc">
-      <div v-if="doc.result" class="border-b border-outline-gray-2 px-4 py-2 text-sm font-semibold">
+      <div
+        v-if="summary"
+        class="flex items-center gap-3 border-b border-outline-gray-2 px-4 py-2 text-sm font-medium tabular-nums"
+      >
+        <span class="text-ink-gray-6">{{ summary.total }} / {{ summary.total }} tests</span>
+        <span :class="summary.passed ? 'text-ink-green-3' : 'text-ink-gray-5'">
+          ✓ {{ summary.passed }} Passed
+        </span>
+        <span
+          :class="summary.failed ? 'text-ink-red-3' : 'text-ink-gray-5'"
+          title="An assertion failed"
+        >
+          ✕ {{ summary.failed }} Failed
+        </span>
+        <span
+          :class="summary.errors ? 'text-ink-amber-3' : 'text-ink-gray-5'"
+          title="The test crashed with an unexpected exception"
+        >
+          ⚠ {{ summary.errors }} Errors
+        </span>
+      </div>
+      <div
+        v-else-if="doc.result"
+        class="border-b border-outline-gray-2 px-4 py-2 text-sm font-semibold"
+      >
         {{ doc.result }}
       </div>
       <Console :lines="outputLines" />
@@ -57,6 +81,19 @@ const run = createResource({
 
 const doc = computed(() => run.data)
 const displayStatus = computed(() => liveStatus.value || doc.value?.status || 'Unknown')
+
+// Parse the run's `result` ("Passed: X, Failed: Y, Errors: Z") into a styled
+// tally that mirrors the Runner footer. Null when no tally was recorded.
+const summary = computed(() => {
+  const result = doc.value?.result
+  if (!result) return null
+  const m = result.match(/Passed:\s*(\d+),\s*Failed:\s*(\d+),\s*Errors:\s*(\d+)/i)
+  if (!m) return null
+  const passed = +m[1]
+  const failed = +m[2]
+  const errors = +m[3]
+  return { passed, failed, errors, total: passed + failed + errors }
+})
 
 const outputLines = computed(() => {
   // While actively streaming, show whatever has come in (may be empty briefly).

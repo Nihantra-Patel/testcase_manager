@@ -42,20 +42,6 @@
       </div>
 
       <div class="ml-auto flex items-end gap-2">
-        <button
-          v-if="activeRuns > 0"
-          class="flex items-center gap-1.5 self-center rounded-full bg-surface-amber-1 px-2.5 py-1 text-xs font-medium text-ink-amber-3 transition-colors hover:bg-surface-amber-2"
-          title="View running tests in History"
-          @click="$router.push({ path: '/history', query: { status: 'Running' } })"
-        >
-          <span class="relative flex h-2 w-2">
-            <span
-              class="absolute inline-flex h-full w-full animate-ping rounded-full bg-ink-amber-3 opacity-75"
-            />
-            <span class="relative inline-flex h-2 w-2 rounded-full bg-ink-amber-3" />
-          </span>
-          {{ activeRuns }} running
-        </button>
         <span class="self-center text-xs text-ink-gray-5">{{ countLabel }}</span>
         <Button v-if="filters.app" variant="subtle" @click="confirmRunApp">
           <template #prefix><FeatherIcon name="play" class="h-3.5 w-3.5" /></template>
@@ -147,15 +133,41 @@
         >
           <span class="truncate text-sm font-semibold">{{ runner.runLabel.value }}</span>
           <div class="flex items-center gap-2">
-            <Badge v-if="runner.status.value" :theme="statusTheme" :label="runner.status.value" />
+            <!-- One activity indicator: while anything is in progress, show only the
+                 live "N running" pill. Once everything is idle, show the terminal
+                 status badge (Passed / Failed / Stopped) for this console's run. -->
+            <button
+              v-if="activeRuns > 0"
+              class="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-surface-amber-1 px-2.5 py-1 text-xs font-medium text-ink-amber-3 transition-colors hover:bg-surface-amber-2"
+              title="View running tests in History"
+              @click="$router.push({ path: '/history', query: { status: 'Running' } })"
+            >
+              <span class="relative flex h-2 w-2 flex-shrink-0">
+                <span
+                  class="absolute inline-flex h-full w-full animate-ping rounded-full bg-current opacity-75"
+                />
+                <span class="relative inline-flex h-2 w-2 rounded-full bg-current" />
+              </span>
+              <span>{{ activeRuns }} running</span>
+            </button>
+            <Badge
+              v-else-if="runner.status.value"
+              :theme="statusTheme"
+              :label="runner.status.value"
+            />
             <Button
               v-if="runner.isRunning.value"
-              variant="solid"
+              variant="ghost"
               theme="red"
               size="sm"
-              label="Stop"
+              title="Stop this run"
               @click="runner.stop()"
-            />
+            >
+              <template #prefix>
+                <FeatherIcon name="stop-circle" class="h-4 w-4" />
+              </template>
+              Stop
+            </Button>
           </div>
         </div>
 

@@ -137,10 +137,21 @@
         </span>
         <span class="w-[56px] flex-shrink-0 text-right">
           <Button
+            v-if="isRunningStatus(r.status)"
+            variant="ghost"
+            theme="red"
+            size="sm"
+            :loading="stopping[r.name]"
+            title="Stop this run"
+            @click.stop="stopRun(r)"
+          >
+            <template #icon><FeatherIcon name="stop-circle" class="h-4 w-4" /></template>
+          </Button>
+          <Button
+            v-else
             variant="ghost"
             size="sm"
-            :disabled="isRunningStatus(r.status)"
-            :title="isRunningStatus(r.status) ? 'Run in progress' : 'Preview output'"
+            title="Preview output"
             @click.stop="openPreview(r)"
           >
             <template #icon><FeatherIcon name="eye" class="h-4 w-4" /></template>
@@ -194,7 +205,7 @@
           <div
             class="flex flex-shrink-0 items-center justify-between gap-3 border-b border-outline-gray-2 bg-surface-gray-1 px-4 py-3"
           >
-            <div class="flex min-w-0 items-center gap-2">
+            <div class="flex min-w-0 items-center gap-3">
               <span class="truncate text-sm font-semibold text-ink-gray-9">
                 {{ preview.title }}
               </span>
@@ -203,6 +214,29 @@
                 :theme="theme(preview.status)"
                 :label="preview.status"
               />
+              <div
+                v-if="previewSummary"
+                class="flex flex-shrink-0 items-center gap-3 text-xs font-medium tabular-nums"
+              >
+                <span class="text-ink-gray-6">
+                  {{ previewSummary.total }} / {{ previewSummary.total }} tests
+                </span>
+                <span :class="previewSummary.passed ? 'text-ink-green-3' : 'text-ink-gray-5'">
+                  ✓ {{ previewSummary.passed }} Passed
+                </span>
+                <span
+                  :class="previewSummary.failed ? 'text-ink-red-3' : 'text-ink-gray-5'"
+                  title="An assertion failed"
+                >
+                  ✕ {{ previewSummary.failed }} Failed
+                </span>
+                <span
+                  :class="previewSummary.errors ? 'text-ink-amber-3' : 'text-ink-gray-5'"
+                  title="The test crashed with an unexpected exception"
+                >
+                  ⚠ {{ previewSummary.errors }} Errors
+                </span>
+              </div>
             </div>
             <div class="flex flex-shrink-0 items-center gap-3">
               <RouterLink
@@ -237,7 +271,7 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { createListResource, call } from 'frappe-ui'
+import { createListResource, call, toast } from 'frappe-ui'
 import { api } from '@/api'
 import Console from '@/components/Console.vue'
 
@@ -251,10 +285,21 @@ const apps = ref([])
 const appLogos = ref({}) // app name → logo URL (real per-app SVG)
 
 // ── Quick output preview (dialog) ───────────────────────────────────────────
-const preview = reactive({ show: false, loading: false, name: '', title: '', status: '', output: '' })
+const preview = reactive({
+  show: false,
+  loading: false,
+  name: '',
+  title: '',
+  status: '',
+  output: '',
+  result: '',
+})
 const previewLines = computed(() =>
   (preview.output || 'No output.').split('\n').map((text) => ({ text })),
 )
+// Parsed pass/fail/error tally for the preview header, mirroring the Runner's
+// footer format ("N / N tests  ✓ N Passed  ✕ N Failed  ⚠ N Errors").
+const previewSummary = computed(() => parseSummary(preview.result))
 async function openPreview(r) {
   preview.show = true
   preview.loading = true
@@ -262,14 +307,29 @@ async function openPreview(r) {
   preview.title = r.test_method
   preview.status = r.status
   preview.output = ''
+  preview.result = ''
   try {
     const doc = await call('frappe.client.get', { doctype: 'Testcase Run', name: r.name })
     preview.output = doc?.full_output || 'No output.'
+    preview.result = doc?.result || ''
   } catch (e) {
     preview.output = 'Failed to load output.'
   } finally {
     preview.loading = false
   }
+}
+
+// The run's `result` field stores "Passed: X, Failed: Y, Errors: Z". Parse it into
+// counts plus a total; returns null when the run didn't record a tally (e.g. it's
+// still running or was stopped before any result was written).
+function parseSummary(result) {
+  if (!result) return null
+  const m = result.match(/Passed:\s*(\d+),\s*Failed:\s*(\d+),\s*Errors:\s*(\d+)/i)
+  if (!m) return null
+  const passed = +m[1]
+  const failed = +m[2]
+  const errors = +m[3]
+  return { passed, failed, errors, total: passed + failed + errors }
 }
 
 const pageSizeOptions = [20, 100, 500, 2500]
@@ -433,6 +493,23 @@ function typeIcon(type) {
 
 function isRunningStatus(status) {
   return status === 'Running' || status === 'Pending'
+}
+
+// Stop a running/pending run straight from the list. Per-row loading flag so only
+// the clicked row shows a spinner; reload afterwards to reflect the Stopped state.
+const stopping = reactive({})
+async function stopRun(r) {
+  stopping[r.name] = true
+  try {
+    await api.stopRun(r.name)
+    toast({ title: 'Run stopped', icon: 'check', iconClasses: 'text-green-600' })
+    runs.reload()
+    refreshCount()
+  } catch (e) {
+    toast({ title: 'Failed to stop the run', icon: 'x', iconClasses: 'text-red-600' })
+  } finally {
+    stopping[r.name] = false
+  }
 }
 
 function statusIcon(status) {
