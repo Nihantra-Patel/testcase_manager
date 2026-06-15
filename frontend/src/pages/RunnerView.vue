@@ -383,11 +383,20 @@ const groupedRecords = computed(() => {
     }))
 })
 
+// "Select all" is scoped to the currently-visible records so it doesn't disturb
+// selections made under other filters: checked = every visible test is selected.
 const allSelected = computed(
-  () => records.value.length > 0 && selected.value.length === records.value.length,
+  () =>
+    records.value.length > 0 &&
+    records.value.every((r) => selected.value.includes(r.name)),
 )
 function toggleAll(e) {
-  selected.value = e.target.checked ? records.value.map((r) => r.name) : []
+  const visible = records.value.map((r) => r.name)
+  if (e.target.checked) {
+    selected.value = [...new Set([...selected.value, ...visible])]
+  } else {
+    selected.value = selected.value.filter((n) => !visible.includes(n))
+  }
 }
 function toggleOne(name) {
   const i = selected.value.indexOf(name)
@@ -421,7 +430,8 @@ async function doQuery() {
     const res = await api.getTestCases(args)
     records.value = res.records || []
     total.value = res.total || 0
-    selected.value = []
+    // Selection intentionally persists across filter/search changes so the user can
+    // build a cross-app / cross-doctype selection. It's cleared only on run or reload.
   } finally {
     loading.value = false
   }
@@ -500,6 +510,7 @@ function nudgeOwnRun() {
 }
 async function runSelected() {
   await runner.runSelected(selected.value, records.value, realtime.value)
+  selected.value = [] // clear the selection once it's been submitted to run
   nudgeOwnRun()
 }
 async function runOne(name, label) {
