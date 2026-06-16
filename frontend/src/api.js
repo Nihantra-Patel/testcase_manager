@@ -14,6 +14,9 @@ export const api = {
   getTestCases: (args) => call(`${Q}.get_test_cases_for_page`, args),
   getRunCount: (filters) => call(`${Q}.get_run_count`, { filters: JSON.stringify(filters || {}) }),
   getActiveRun: (current) => call(`${Q}.get_active_run`, current ? { current } : {}),
+  // Static test-impact analysis: which tests the app's branch changes affect (no run).
+  analyzeImpact: (app, depth) =>
+    call('testcase_manager.testcase_manager.impact.analyze', { app, depth }),
   // Live (partial) output of a running test, read from the worker's Redis snapshot
   // so it works even when realtime sockets don't reach the client.
   getLiveOutput: (run_name) =>

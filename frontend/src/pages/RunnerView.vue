@@ -42,7 +42,15 @@
       </div>
 
       <div class="ml-auto flex items-end gap-2">
-        <span class="self-center text-xs text-ink-gray-5">{{ countLabel }}</span>
+        <Button
+          v-if="filters.app"
+          variant="subtle"
+          :loading="impact.loading"
+          @click="analyzeImpact"
+        >
+          <template #prefix><FeatherIcon name="git-pull-request" class="h-3.5 w-3.5" /></template>
+          Analyze Impact
+        </Button>
         <Button v-if="filters.app" variant="subtle" @click="confirmRunApp">
           <template #prefix><FeatherIcon name="play" class="h-3.5 w-3.5" /></template>
           Run Entire App
@@ -54,6 +62,97 @@
       </div>
     </div>
 
+    <!-- Impact analysis result banner -->
+    <div
+      v-if="impact.result"
+      class="border-b border-outline-amber-2 bg-surface-amber-1 px-8 py-2.5"
+    >
+      <!-- Row 1: summary (left) + controls (right) -->
+      <div class="flex items-center gap-4">
+        <div class="flex min-w-0 items-baseline gap-2">
+          <FeatherIcon name="git-pull-request" class="h-4 w-4 flex-shrink-0 text-ink-amber-3" />
+          <span class="text-sm font-semibold text-ink-amber-3">
+            {{ impact.result.affected_count }} of {{ impact.result.total_app_tests }} tests affected
+          </span>
+          <span class="truncate text-xs text-ink-gray-6">
+            {{ impact.result.changed_file_count }} file(s) changed ·
+            <template v-if="impact.result.base === impact.result.head">
+              uncommitted on <span class="font-medium">{{ impact.result.head }}</span>
+            </template>
+            <template v-else>
+              <span class="font-medium">{{ impact.result.base }}</span>
+              →
+              <span class="font-medium">{{ impact.result.head }}</span>
+            </template>
+          </span>
+        </div>
+
+        <div class="ml-auto flex flex-shrink-0 items-center gap-2">
+          <span class="text-xs font-medium text-ink-gray-6">Depth</span>
+          <Select
+            v-model.number="impact.depth"
+            :options="depthOptions"
+            class="w-[140px]"
+            @update:modelValue="analyzeImpact"
+          />
+          <Tooltip :hover-delay="0.1">
+            <FeatherIcon name="help-circle" class="h-4 w-4 cursor-help text-ink-gray-4" />
+            <template #body>
+              <div class="w-max max-w-[520px] rounded-md bg-surface-gray-7 px-3 py-2 text-xs text-ink-white">
+                <div class="mb-1 font-medium">How widely to look for affected tests</div>
+                <div class="whitespace-nowrap">
+                  <span class="font-semibold">1 — Direct:</span> only tests that use a changed file directly. Fewest.
+                </div>
+                <div class="whitespace-nowrap">
+                  <span class="font-semibold">2 — Balanced:</span> also tests one step away. Recommended.
+                </div>
+                <div class="whitespace-nowrap">
+                  <span class="font-semibold">3 — Broad:</span> looks further out. More tests, less precise.
+                </div>
+              </div>
+            </template>
+          </Tooltip>
+          <Button
+            variant="solid"
+            :disabled="!impact.result.affected_count || !canStartNewRun"
+            @click="runAffected"
+          >
+            <template #prefix><FeatherIcon name="play" class="h-3.5 w-3.5" /></template>
+            Run affected ({{ impact.result.affected_count }})
+          </Button>
+          <Button variant="ghost" @click="clearImpact">Clear</Button>
+        </div>
+      </div>
+
+      <!-- Row 2: caveat + changed-files toggle -->
+      <div class="mt-1 flex items-center gap-3 text-[11px] text-ink-gray-5">
+        <span>
+          This is a quick guess from your code changes — it may not catch every
+          affected test, so keep the full run as your final check.
+        </span>
+        <button
+          class="underline underline-offset-2 hover:text-ink-gray-7"
+          @click="impact.showFiles = !impact.showFiles"
+        >
+          {{ impact.showFiles ? 'Hide' : 'Show' }} changed files
+        </button>
+      </div>
+
+      <!-- Changed files (collapsible) -->
+      <div
+        v-if="impact.showFiles"
+        class="mt-1.5 max-h-32 overflow-y-auto rounded border border-outline-amber-2 bg-surface-white px-2 py-1.5"
+      >
+        <div
+          v-for="f in impact.result.changed_files"
+          :key="f"
+          class="truncate font-mono text-[11px] text-ink-gray-6"
+        >
+          {{ f }}
+        </div>
+      </div>
+    </div>
+
     <!-- Two-column body -->
     <div class="flex min-h-0 flex-1">
       <!-- Tests list -->
@@ -61,7 +160,10 @@
         <div
           class="flex items-center justify-between border-b border-outline-gray-2 bg-surface-gray-1 px-3 py-1.5"
         >
-          <span class="text-xs font-bold text-ink-gray-5">Tests</span>
+          <div class="flex items-baseline gap-2">
+            <span class="text-xs font-bold text-ink-gray-5">Tests</span>
+            <span class="text-xs text-ink-gray-5">{{ countLabel }}</span>
+          </div>
           <label class="flex cursor-pointer items-center gap-1.5 text-xs">
             <input type="checkbox" :checked="allSelected" @change="toggleAll" class="tc-checkbox" />
             Select all
@@ -91,7 +193,16 @@
                   class="tc-checkbox flex-shrink-0"
                 />
                 <div class="min-w-0 flex-1 cursor-pointer" @click="toggleOne(tc.name)">
-                  <div class="truncate text-sm font-semibold">{{ tc.test_method }}</div>
+                  <div class="flex items-center gap-1.5">
+                    <span class="truncate text-sm font-semibold">{{ tc.test_method }}</span>
+                    <span
+                      v-if="impact.reasons[tc.name]"
+                      class="flex-shrink-0 rounded bg-surface-amber-2 px-1.5 py-0.5 text-[10px] font-medium text-ink-amber-3"
+                      :title="impact.reasons[tc.name].join('\n')"
+                    >
+                      affected
+                    </span>
+                  </div>
                   <div class="truncate text-xs text-ink-gray-4">{{ tc.python_path }}</div>
                 </div>
                 <Button
@@ -286,6 +397,58 @@ const syncing = ref(false)
 const apps = ref([])
 const refValues = ref([])
 const showRunAppDialog = ref(false)
+
+// ── Impact analysis (pre-PR "run only what changed") ────────────────────────
+// depth bounds how many import-hops to follow when deciding a test is affected.
+const impact = reactive({ loading: false, result: null, showFiles: false, reasons: {}, depth: 2 })
+const depthOptions = [
+  { label: '1 — Direct', value: 1 },
+  { label: '2 — Balanced', value: 2 },
+  { label: '3 — Broad', value: 3 },
+]
+async function analyzeImpact() {
+  if (!filters.app) return
+  impact.loading = true
+  try {
+    // Show the whole app's tests so every affected one is visible (and badged),
+    // not just those under the current Type/DocType/search filter.
+    filters.type = ''
+    filters.ref = ''
+    filters.search = ''
+    const res = await api.analyzeImpact(filters.app, impact.depth)
+    impact.result = res
+    impact.showFiles = false
+    impact.reasons = {}
+    for (const a of res.affected || []) impact.reasons[a.name] = a.reasons
+    // Auto-select the affected tests so the user can run them with Run Selected.
+    selected.value = (res.affected || []).map((a) => a.name)
+    if (!res.affected_count) {
+      toast({ title: 'No affected tests found for the current changes', icon: 'info' })
+    }
+  } catch (e) {
+    toast({
+      title: e?.messages?.[0] || 'Impact analysis failed',
+      icon: 'x',
+      iconClasses: 'text-red-600',
+    })
+  } finally {
+    impact.loading = false
+  }
+}
+function clearImpact() {
+  impact.result = null
+  impact.reasons = {}
+  impact.showFiles = false
+}
+// One-click: run all affected tests as a background batch (realtime), reusing the
+// normal run flow. records is passed so a single-test run can resolve its label.
+async function runAffected() {
+  const names = (impact.result?.affected || []).map((a) => a.name)
+  if (!names.length) return
+  await runner.runSelected(names, records.value, realtime.value)
+  selected.value = []
+  nudgeOwnRun()
+}
 
 // ── Filter option lists ────────────────────────────────────────────────────
 const appOptions = computed(() => [
@@ -496,6 +659,13 @@ watch(
   () => {
     saveFilters()
     queueQuery()
+  },
+)
+// Impact analysis is per-app, so changing the app invalidates a prior result.
+watch(
+  () => filters.app,
+  () => {
+    if (!restoring) clearImpact()
   },
 )
 watch(realtime, saveFilters)
