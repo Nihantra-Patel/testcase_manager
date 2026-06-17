@@ -152,7 +152,19 @@ def _ensure_scheduler_enabled() -> None:
 	"""
 	try:
 		import frappe.utils.scheduler as _sched
+		from frappe.testing import environment as _env
 
+		# Frappe's test env records "was the scheduler already disabled?" in a module
+		# global (scheduler_disabled_by_user) at setup, and on a long-lived RQ worker
+		# that flag can stay True across runs — so _cleanup_after_tests then *skips*
+		# re-enabling and the site is left showing "Scheduler: Inactive". Reset it so
+		# the framework's own cleanup re-enables next time too.
+		if hasattr(_env, "scheduler_disabled_by_user"):
+			_env.scheduler_disabled_by_user = False
+
+		# is_scheduler_disabled reads System Settings via a cached doc; clear it so we
+		# see the real current value, not a stale one from earlier in the job.
+		frappe.clear_document_cache("System Settings", "System Settings")
 		if _sched.is_scheduler_disabled(verbose=False):
 			_sched.enable_scheduler()
 			frappe.db.commit()
