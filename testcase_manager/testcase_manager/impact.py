@@ -21,6 +21,7 @@ not "provably complete".
 from __future__ import annotations
 
 import ast
+import hashlib
 import os
 import subprocess
 
@@ -160,6 +161,54 @@ def _build_import_graph(app: str) -> dict[str, set[str]]:
 	return graph
 
 
+def _app_source_fingerprint(app: str) -> str:
+	"""Cheap signature of the app's .py files (path + mtime + size).
+
+	Walking paths/mtimes is far cheaper than parsing every file's AST, so we use
+	this to decide whether a cached import graph is still valid. Any edit, add, or
+	delete of a .py file changes the fingerprint and invalidates the cache.
+	"""
+	app_path = _app_path(app)
+	pkg_root = os.path.join(app_path, app)
+	parts: list[str] = []
+	for dirpath, _dirs, files in os.walk(pkg_root):
+		if "node_modules" in dirpath or "/.git" in dirpath:
+			continue
+		for fname in files:
+			if not fname.endswith(".py"):
+				continue
+			abs_path = os.path.join(dirpath, fname)
+			try:
+				st = os.stat(abs_path)
+				parts.append(f"{abs_path}:{int(st.st_mtime)}:{st.st_size}")
+			except OSError:
+				continue
+	parts.sort()
+	return hashlib.sha1("\n".join(parts).encode("utf-8")).hexdigest()
+
+
+def _get_import_graph(app: str) -> dict[str, set[str]]:
+	"""Import graph for *app*, cached in frappe.cache and keyed on source fingerprint.
+
+	Building the graph means an os.walk + AST parse of the whole app — the expensive,
+	depth-independent step. The depth selector re-runs the cheap reachability pass on
+	top of this, so toggling depth 1→2→3 no longer rebuilds the graph each time.
+	The fingerprint key means a code edit transparently rebuilds it on the next call.
+	"""
+	fingerprint = _app_source_fingerprint(app)
+	cache_key = f"testcase_manager:import_graph:{app}:{fingerprint}"
+	cache = frappe.cache()
+
+	cached = cache.get_value(cache_key)
+	if cached is not None:
+		# Stored as plain lists (JSON-serialisable); restore the set-of-deps shape.
+		return {mod: set(deps) for mod, deps in cached.items()}
+
+	graph = _build_import_graph(app)
+	cache.set_value(cache_key, {mod: sorted(deps) for mod, deps in graph.items()}, expires_in_sec=3600)
+	return graph
+
+
 def _modules_reaching(graph: dict[str, set[str]], targets: set[str], max_depth: int = 2) -> set[str]:
 	"""Modules whose imports reach any target within ``max_depth`` hops (reverse).
 
@@ -199,6 +248,46 @@ def _modules_reaching(graph: dict[str, set[str]], targets: set[str], max_depth: 
 	return impacted
 
 
+def _reaching_paths(
+	graph: dict[str, set[str]], targets: set[str], max_depth: int = 2
+) -> dict[str, list[str]]:
+	"""Like ``_modules_reaching`` but records the path each impacted module took.
+
+	Returns ``{impacted_module: [impacted_module, …, changed_module]}`` — the shortest
+	import chain (in hops) from the impacted module down to a changed one. This is what
+	lets the UI explain *why* a test is "transitively affected" instead of just asserting
+	it. BFS, so the first path found for a module is the shortest.
+	"""
+	reverse: dict[str, set[str]] = {}
+	for mod, deps in graph.items():
+		for dep in deps:
+			reverse.setdefault(dep, set()).add(mod)
+
+	def _importers_of(target: str) -> set[str]:
+		out = set(reverse.get(target, ()))
+		for dep, importers in reverse.items():
+			if dep.startswith(target + "."):
+				out |= importers
+		return out
+
+	# path[m] = chain from m down to a changed module (m first, changed-module last).
+	paths: dict[str, list[str]] = {t: [t] for t in targets}
+	frontier = set(targets)
+	for _ in range(max(1, max_depth)):
+		nxt: set[str] = set()
+		for t in frontier:
+			for importer in _importers_of(t):
+				if importer not in paths:
+					paths[importer] = [importer, *paths[t]]
+					nxt.add(importer)
+		if not nxt:
+			break
+		frontier = nxt
+
+	# Drop the changed modules themselves — callers only want the reached importers.
+	return {m: p for m, p in paths.items() if m not in targets}
+
+
 @frappe.whitelist()
 def analyze(app: str, base: str | None = None, depth: int = 2) -> dict:
 	"""Testcases affected by the app's current branch changes (no tests run).
@@ -236,7 +325,7 @@ def analyze(app: str, base: str | None = None, depth: int = 2) -> dict:
 
 	affected: dict[str, dict] = {}
 
-	def _mark(t: dict, reason: str):
+	def _mark(t: dict, reason: str, path: list[str] | None = None):
 		row = affected.setdefault(
 			t["name"],
 			{
@@ -244,16 +333,23 @@ def analyze(app: str, base: str | None = None, depth: int = 2) -> dict:
 				"test_method": t["test_method"],
 				"python_path": t["python_path"],
 				"reasons": [],
+				"paths": [],
 			},
 		)
 		if reason not in row["reasons"]:
 			row["reasons"].append(reason)
+		if path and path not in row["paths"]:
+			row["paths"].append(path)
 
 	# Transitive reach: every in-app module that imports a changed one, directly or
 	# through a chain. A test whose own module is in here is impacted even when it
 	# doesn't import the changed file itself (it goes through intermediate modules).
-	graph = _build_import_graph(app)
-	impacted_modules = _modules_reaching(graph, changed_modules, max_depth=int(depth or 2))
+	# The graph is cached (depth-independent); _reaching_paths also yields, per module,
+	# the import chain back to a changed file so the UI can explain the link.
+	graph = _get_import_graph(app)
+	max_depth = int(depth or 2)
+	paths_by_module = _reaching_paths(graph, changed_modules, max_depth=max_depth)
+	impacted_modules = set(paths_by_module)
 
 	app_path = _app_path(app)
 	for t in tests:
@@ -263,17 +359,24 @@ def analyze(app: str, base: str | None = None, depth: int = 2) -> dict:
 		if t.get("test_file_path") and t["test_file_path"] in changed:
 			_mark(t, "Test file changed")
 
-		# 2) The test directly imports a changed module.
-		if t.get("test_file_path"):
-			abs_path = os.path.join(app_path, t["test_file_path"])
-			imports = _imported_modules(abs_path)
-			hit = {m for m in changed_modules if any(i == m or i.startswith(m + ".") for i in imports)}
-			for m in sorted(hit):
-				_mark(t, f"Imports changed module: {m}")
+		# 2) The test directly imports a changed module. Read the test's imports from
+		#    the cached graph (keyed by dotted module) instead of re-reading and
+		#    AST-parsing every test file on each call — that re-parse was the bulk of
+		#    the analyze cost and is fully redundant with the graph we already built.
+		imports = graph.get(test_mod, set())
+		hit = {m for m in changed_modules if any(i == m or i.startswith(m + ".") for i in imports)}
+		for m in sorted(hit):
+			_mark(t, f"Imports changed module: {m}")
 
 		# 3) The test reaches a changed module transitively (through other modules).
+		#    Attach the import chain (test_mod → … → changed_mod) so the UI can show
+		#    exactly which intermediate modules linked the test to the change.
 		if test_mod in impacted_modules:
-			_mark(t, "Depends (transitively) on changed code")
+			path = paths_by_module.get(test_mod)
+			reason = "Depends (transitively) on changed code"
+			if path and len(path) > 1:
+				reason = f"Depends (transitively) via: {' → '.join(path)}"
+			_mark(t, reason, path)
 
 		# 4) The test targets a changed doctype.
 		if t.get("reference_doctype") and t["reference_doctype"] in changed_doctypes:
