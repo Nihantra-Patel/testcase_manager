@@ -7,6 +7,11 @@ const routes = [
     component: () => import('@/pages/RunnerView.vue'),
   },
   {
+    path: '/profiler',
+    name: 'Profiler',
+    component: () => import('@/pages/ProfilerView.vue'),
+  },
+  {
     path: '/history',
     name: 'History',
     component: () => import('@/pages/HistoryView.vue'),

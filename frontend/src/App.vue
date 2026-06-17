@@ -61,6 +61,7 @@ const links = [
   // exact match for Runner so it isn't highlighted on /history routes
   { to: '/', label: 'Runner', exact: true },
   { to: '/history', label: 'History' },
+  { to: '/profiler', label: 'Profiler' },
 ]
 
 // Light / dark theme. frappe-ui's design tokens (surface-/ink-/outline-) respond

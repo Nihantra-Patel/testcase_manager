@@ -28,6 +28,11 @@ export const api = {
   runTestBatch: (test_cases, background = 0) =>
     call(`${M}.run_test_batch`, { test_cases: JSON.stringify(test_cases), background }),
   runAppTests: (app) => call(`${M}.run_app_tests`, { app }),
+
+  // ── Document profiler (Feature 2) ──────────────────────────────────
+  profileDocument: (doctype, name, action) =>
+    call(`${M}.profile_document`, { doctype, name, action }),
+  getProfileableDoctypes: (search) => call(`${M}.get_profileable_doctypes`, { search }),
   stopRun: (run_name, partial_output) =>
     call(`${M}.stop_run`, { run_name, partial_output }),
   syncTestCases: (args) => call(`${M}.sync_test_cases`, args),

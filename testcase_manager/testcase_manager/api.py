@@ -337,3 +337,37 @@ def run_app_tests(app: str) -> dict:
 		frappe.throw(f"No active test cases found for app '{app}'")
 	# Whole-app runs are long → always background.
 	return run_test_case(anchor, run_scope="App", background=1)
+
+
+# ---------------------------------------------------------------------------
+# Document profiler (Feature 2): profile one save/submit without persisting.
+# ---------------------------------------------------------------------------
+
+
+@frappe.whitelist()
+def profile_document(doctype: str, name: str, action: str = "insert") -> dict:
+	"""Profile a single document action (insert/submit) and roll it back.
+
+	Returns the cProfile bucketed summary + raw table (``profile_data``) plus the
+	echoed inputs and any error from the action. Nothing is written to disk — the
+	action runs inside a savepoint that is always rolled back.
+	"""
+	_guard()
+	from testcase_manager.testcase_manager.profiling import profile_document_action
+
+	return profile_document_action(doctype, name, action)
+
+
+@frappe.whitelist()
+def get_profileable_doctypes(search: str | None = None) -> list[str]:
+	"""DocTypes a user can pick to profile: non-child, non-single, with records.
+
+	Child tables and Single doctypes have no standalone insert/submit to profile,
+	so they're excluded. Filtered by *search* (substring) for the picker.
+	"""
+	_guard()
+	filters: dict = {"istable": 0, "issingle": 0}
+	if search:
+		filters["name"] = ["like", f"%{search}%"]
+	rows = frappe.get_all("DocType", filters=filters, pluck="name", order_by="name", limit=50)
+	return rows
