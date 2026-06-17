@@ -25,6 +25,30 @@ output, pass/fail counts, and timing for later inspection.
 The interface is a single-page application built with [Frappe UI](https://ui.frappe.io)
 (Vue 3), served at `/testcase_manager`.
 
+## Screenshots
+
+**Runner** — discover, filter, select, and run tests with a live console.
+
+![Runner](.github/assets/runner.png)
+
+A finished batch run, with per-test results streamed to the console:
+
+![Runner output](.github/assets/runner-output.png)
+
+**Test-impact analysis** — find which tests a branch's changes affect and run
+just those, without executing anything during analysis.
+
+![Analyze Impact](.github/assets/runner-impact.png)
+
+**History** — a persistent, filterable record of every run.
+
+![History](.github/assets/history.png)
+
+**Profiler** — profile a document's `submit`/`cancel` and see where time goes,
+without persisting anything.
+
+![Profiler](.github/assets/profiler.png)
+
 ## Who it's for
 
 - **Developers** who want a faster feedback loop while writing tests, without
@@ -49,6 +73,13 @@ The interface is a single-page application built with [Frappe UI](https://ui.fra
 - **Persistent history** — every run is recorded in `Testcase Run` (with full
   output, status, and duration) and `Testcase Log` (with pass/fail/error counts),
   browsable through a paginated, filterable History view.
+- **Test-impact analysis** — before opening a PR, statically analyse a branch's
+  git diff to find which tests are affected (via the import graph and DocType
+  links) and run only those as a batch — no tests are executed during analysis.
+- **Document profiler** — profile a single document's `submit` or `cancel`
+  in-place using `cProfile`, run inside a savepoint that is rolled back so all
+  hooks fire (real timings) but nothing persists. Replaces the manual
+  `frappe.copy_doc(...); %prun doc.submit()` console workflow.
 - **Stop control** — abort a queued or running job; partial output is preserved.
 - **Automatic sync** — discovered tests are kept up to date after every
   migration and on a daily schedule.
@@ -61,7 +92,7 @@ Testcase Manager is a standard Frappe app with a Vue frontend.
 testcase_manager/
 ├── frontend/                     # Vue 3 + Frappe UI single-page app (Vite)
 │   └── src/
-│       ├── pages/                # Runner, History, Run detail views
+│       ├── pages/                # Runner, History, Run detail, Profiler views
 │       ├── useTestRunner.js      # run lifecycle + realtime state (shared)
 │       └── api.js                # typed wrappers over the whitelisted endpoints
 └── testcase_manager/
@@ -69,6 +100,9 @@ testcase_manager/
     │   ├── api.py                # whitelisted endpoints consumed by the SPA
     │   ├── discovery.py          # AST-based test discovery & sync
     │   ├── executor.py           # runs tests in-process, streams realtime output
+    │   ├── impact.py             # static test-impact analysis over the git diff
+    │   ├── profiling.py          # cProfile-based document profiler (savepoint-isolated)
+    │   ├── queries.py            # read-only list/lookup queries for the SPA
     │   └── doctype/              # Testcase, Testcase Run, Testcase Log
     ├── www/testcase_manager.html # built SPA entry page (generated)
     └── hooks.py                  # routing, scheduler, log retention
@@ -97,7 +131,7 @@ testcase_manager/
 
 `website_route_rules` in `hooks.py` maps `/testcase_manager/<path:app_path>` to
 the SPA page (`www/testcase_manager.html`), so the Vue Router's history-mode
-routes (`/`, `/history`, `/history/<run>`) all resolve to the app.
+routes (`/`, `/history`, `/history/<run>`, `/profiler`) all resolve to the app.
 
 ### Automatic sync
 
@@ -164,6 +198,32 @@ then:
 
 Output streams to the console on the right; a status badge and a pass/fail
 summary appear when the run finishes. Use **Stop** to abort a running job.
+
+### Test-impact analysis
+
+With an app selected, click **Analyze Impact** to see which tests a branch's
+changes affect — **without running anything**. It reads the app's git diff
+(committed + uncommitted) and works out the affected tests from:
+
+- the **import graph** (a test that imports a changed module, directly or through
+  a bounded chain of intermediate modules), and
+- **DocType links** (a changed DocType affects its own tests).
+
+Each affected test shows the reason it was picked; a **depth** selector controls
+how many import hops to follow. Use **Run affected** to execute just those tests
+as one batch. The analysis is approximate by design (it can over-select and can
+miss purely dynamic dependencies), so it's a fast pre-PR narrowing — not a
+replacement for the full run.
+
+### Profiler
+
+The **Profiler** view profiles a single document action in place. Pick a
+**DocType**, a **record**, and an **action** (`submit` for a draft, `cancel` for
+a submitted doc), then **Profile**. The action runs wrapped in a database
+savepoint that is always rolled back, so every hook fires (real timings) but
+nothing is written. The result is the raw `cProfile` table (sorted by cumulative
+time, with bench paths shortened to `/apps`), showing exactly where time goes —
+replacing the manual `frappe.copy_doc(...); %prun doc.submit()` ritual.
 
 ### History
 
