@@ -351,7 +351,6 @@ def analyze(app: str, base: str | None = None, depth: int = 2) -> dict:
 	paths_by_module = _reaching_paths(graph, changed_modules, max_depth=max_depth)
 	impacted_modules = set(paths_by_module)
 
-	app_path = _app_path(app)
 	for t in tests:
 		test_mod = t.get("python_path") or ""
 
