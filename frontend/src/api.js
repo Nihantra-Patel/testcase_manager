@@ -28,6 +28,11 @@ export const api = {
   runTestBatch: (test_cases, background = 0) =>
     call(`${M}.run_test_batch`, { test_cases: JSON.stringify(test_cases), background }),
   runAppTests: (app) => call(`${M}.run_app_tests`, { app }),
+  // How many failed/errored tests in a run can be re-run (to enable the button).
+  getFailedTests: (run_name) => call(`${M}.get_failed_tests`, { run_name }),
+  // Re-run only the failed + errored tests of a previous run as a new batch.
+  rerunFailed: (run_name, background = 1) =>
+    call(`${M}.rerun_failed`, { run_name, background }),
 
   // ── Document profiler (Feature 2) ──────────────────────────────────
   profileDocument: (doctype, name, action) =>

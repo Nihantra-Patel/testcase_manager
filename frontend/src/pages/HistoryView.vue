@@ -239,6 +239,18 @@
               </div>
             </div>
             <div class="flex flex-shrink-0 items-center gap-3">
+              <Button
+                v-if="previewSummary && previewSummary.failed + previewSummary.errors > 0"
+                variant="solid"
+                theme="red"
+                size="sm"
+                :loading="rerunning"
+                label="Rerun failed & errors"
+                title="Re-run only the failed and errored tests as a new batch"
+                @click="rerunFailed(preview.name, close)"
+              >
+                <template #prefix><FeatherIcon name="refresh-cw" class="h-3.5 w-3.5" /></template>
+              </Button>
               <RouterLink
                 v-if="preview.name"
                 :to="`/history/${preview.name}`"
@@ -270,12 +282,13 @@
 
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { createListResource, call, toast } from 'frappe-ui'
 import { api } from '@/api'
 import Console from '@/components/Console.vue'
 
 const route = useRoute()
+const router = useRouter()
 
 const STORAGE_KEY = 'tc_history_filters_v1'
 
@@ -316,6 +329,33 @@ async function openPreview(r) {
     preview.output = 'Failed to load output.'
   } finally {
     preview.loading = false
+  }
+}
+
+// ── Rerun failed & errored tests ────────────────────────────────────────────
+// Launches a new batch run of just the failing tests from `runName`, then jumps
+// to that run's full view ("Open full run") so it streams live there.
+const rerunning = ref(false)
+async function rerunFailed(runName, closeDialog) {
+  if (!runName || rerunning.value) return
+  rerunning.value = true
+  try {
+    // background=1 → realtime run so RunDetailView can stream it as it executes.
+    const res = await api.rerunFailed(runName, 1)
+    if (closeDialog) closeDialog()
+    toast({ title: 'Re-running failed tests…', icon: 'check', iconClasses: 'text-green-600' })
+    runs.reload()
+    refreshCount()
+    // Switch straight to the latest run's full view.
+    if (res?.run_name) router.push(`/history/${res.run_name}`)
+  } catch (e) {
+    toast({
+      title: e?.messages?.[0] || 'Failed to start re-run',
+      icon: 'x',
+      iconClasses: 'text-red-600',
+    })
+  } finally {
+    rerunning.value = false
   }
 }
 

@@ -340,13 +340,23 @@ function createRunner() {
     }
   }
 
+  // Infer a run's total test count so resume()/follow() can show "done / total"
+  // (not just "done"). A batch's test_method is "N tests (batch)" — the count is
+  // in the label; a single-method run is 1; otherwise unknown (0 → no "/ total").
+  function inferTotal(run) {
+    const m = /^(\d+)\s+tests?\s*\(batch\)/i.exec(run.test_method || '')
+    if (m) return +m[1]
+    if (run.run_scope === 'Method' || run.run_scope === 'File') return 1
+    return 0
+  }
+
   // Reconnect to a run that's still in progress (e.g. after a page reload):
   // seed the console from its saved output and subscribe for further events.
   // No-op if we're already streaming this run.
   function resume(run) {
     if (!run || !run.name) return
     if (currentRun.value === run.name || lastRun.value === run.name) return
-    startSession(run.test_method || run.name)
+    startSession(run.test_method || run.name, inferTotal(run))
     status.value = 'Running'
     const seed = (run.full_output || '').split('\n')
     if (seed.length === 1 && seed[0] === '') seed.length = 0
@@ -367,7 +377,7 @@ function createRunner() {
     if (currentRun.value === run.name) return
     autoFollowing = true
     const label = run.test_method || run.name
-    startSession(label)
+    startSession(label, inferTotal(run))
     status.value = 'Running'
     const seed = (run.full_output || '').split('\n')
     if (seed.length === 1 && seed[0] === '') seed.length = 0

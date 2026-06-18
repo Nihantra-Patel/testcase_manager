@@ -218,6 +218,94 @@ def run_test_batch(test_cases: str | list, background: int | str | bool = 0) -> 
 	}
 
 
+import re
+
+# The "FAIL:/FAIL/ERROR:/ERROR" summary headers (from unittest's printErrors and
+# our own _write_errors_to_stream fallback) name the test as
+# "method (module.Class.method)" with the dotted path at the very end of the line.
+# We parse those headers — not the live "✖ method (path) (1.2s)" lines, whose
+# trailing "(1.2s)" makes the end-anchored path ambiguous.
+_FAIL_HEADER_RE = re.compile(r"^(?:FAIL|ERROR)\b.*\(([\w.]+)\.(\w+)\)\s*$")
+
+
+def _failed_tests_from_output(full_output: str) -> list[tuple[str, str]]:
+	"""
+	Extract (python_path, test_method) pairs for tests that failed or errored.
+
+	Reads the run's saved console output and keeps the "FAIL …"/"ERROR …" summary
+	headers, parsing the dotted "module.Class.method" from the trailing parens. The
+	part before the class is the test module's python_path — what Testcase stores.
+	Returns de-duplicated pairs in first-seen order.
+	"""
+	pairs: list[tuple[str, str]] = []
+	seen: set[tuple[str, str]] = set()
+	for raw in (full_output or "").splitlines():
+		m = _FAIL_HEADER_RE.match(raw.strip())
+		if not m:
+			continue
+		# group(1) = "module.Class" (path up to and incl. the class); strip the class.
+		python_path = m.group(1).rsplit(".", 1)[0]
+		method = m.group(2)
+		key = (python_path, method)
+		if key not in seen:
+			seen.add(key)
+			pairs.append(key)
+	return pairs
+
+
+@frappe.whitelist()
+def get_failed_tests(run_name: str) -> dict:
+	"""
+	How many failed/errored tests in a run can be re-run (used to enable the UI button).
+
+	Returns ``{"count": N}`` — the number of distinct failed/errored tests from the
+	run's output that resolve to a known Testcase record.
+	"""
+	_guard()
+	full_output = frappe.db.get_value("Testcase Run", run_name, "full_output") or ""
+	pairs = _failed_tests_from_output(full_output)
+	return {"count": len(_resolve_testcases(pairs))}
+
+
+def _resolve_testcases(pairs: list[tuple[str, str]]) -> list[str]:
+	"""Map (python_path, test_method) pairs to Testcase names, dropping unknowns."""
+	if not pairs:
+		return []
+	tc = frappe.qb.DocType("Testcase")
+	names: list[str] = []
+	for python_path, method in pairs:
+		row = (
+			frappe.qb.from_(tc)
+			.select(tc.name)
+			.where((tc.python_path == python_path) & (tc.test_method == method))
+			.limit(1)
+			.run(pluck=True)
+		)
+		if row:
+			names.append(row[0])
+	# De-dup while preserving order (a method could appear twice across modules).
+	return list(dict.fromkeys(names))
+
+
+@frappe.whitelist()
+def rerun_failed(run_name: str, background: int | str | bool = 1) -> dict:
+	"""
+	Re-run only the failed and errored tests from a previous run, as one batch.
+
+	Parses the original run's output for failing tests, resolves them to Testcase
+	records, and launches a fresh batch run (default: background/realtime so the UI
+	can stream it). Returns the new run details, including ``run_name`` so the caller
+	can navigate straight to it. Throws if nothing re-runnable is found.
+	"""
+	_guard()
+	full_output = frappe.db.get_value("Testcase Run", run_name, "full_output") or ""
+	pairs = _failed_tests_from_output(full_output)
+	test_cases = _resolve_testcases(pairs)
+	if not test_cases:
+		frappe.throw("No failed or errored tests found to re-run.")
+	return run_test_batch(test_cases, background=background)
+
+
 @frappe.whitelist()
 def stop_run(run_name: str, partial_output: str | None = None) -> dict:
 	"""

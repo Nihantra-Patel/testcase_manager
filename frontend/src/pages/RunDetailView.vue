@@ -9,6 +9,18 @@
         <Badge v-if="doc" :theme="theme(displayStatus)" :label="displayStatus" />
       </div>
       <div class="flex items-center gap-3 text-xs text-ink-gray-5">
+        <Button
+          v-if="canRerun"
+          variant="solid"
+          theme="red"
+          size="sm"
+          :loading="rerunning"
+          label="Rerun failed & errors"
+          title="Re-run only the failed and errored tests as a new batch"
+          @click="rerunFailed"
+        >
+          <template #prefix><FeatherIcon name="refresh-cw" class="h-3.5 w-3.5" /></template>
+        </Button>
         <span>{{ doc?.app }}</span>
         <span v-if="doc?.duration">{{ doc.duration }}s</span>
       </div>
@@ -51,14 +63,17 @@
 
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { createResource } from 'frappe-ui'
+import { useRouter } from 'vue-router'
+import { createResource, toast } from 'frappe-ui'
 import Console from '@/components/Console.vue'
+import { api } from '@/api'
 import { useSocket } from '@/socket'
 import { stripAnsi } from '@/utils'
 
 const props = defineProps({ runName: { type: String, required: true } })
 
 const socket = useSocket()
+const router = useRouter()
 
 // Lines streamed live while the run is still in progress. Only consulted while
 // `streaming` is true; once the run finishes we fall back to the saved
@@ -94,6 +109,33 @@ const summary = computed(() => {
   const errors = +m[3]
   return { passed, failed, errors, total: passed + failed + errors }
 })
+
+// Offer "Rerun failed" only on a finished run that actually had failures/errors.
+const canRerun = computed(() => {
+  if (['Running', 'Pending'].includes(displayStatus.value)) return false
+  return !!summary.value && summary.value.failed + summary.value.errors > 0
+})
+
+const rerunning = ref(false)
+async function rerunFailed() {
+  if (rerunning.value) return
+  rerunning.value = true
+  try {
+    // background=1 → realtime run so this view streams it as it executes.
+    const res = await api.rerunFailed(props.runName, 1)
+    toast({ title: 'Re-running failed tests…', icon: 'check', iconClasses: 'text-green-600' })
+    // Switch straight to the new run's full view (the latest history log).
+    if (res?.run_name) router.push(`/history/${res.run_name}`)
+  } catch (e) {
+    toast({
+      title: e?.messages?.[0] || 'Failed to start re-run',
+      icon: 'x',
+      iconClasses: 'text-red-600',
+    })
+  } finally {
+    rerunning.value = false
+  }
+}
 
 const outputLines = computed(() => {
   // While actively streaming, show whatever has come in (may be empty briefly).

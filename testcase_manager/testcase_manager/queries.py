@@ -220,7 +220,7 @@ def get_active_run(current: str | None = None) -> dict | None:
 	def _fetch(name: str):
 		rows = (
 			frappe.qb.from_(run)
-			.select(run.name, run.test_method, run.status, run.full_output)
+			.select(run.name, run.test_method, run.run_scope, run.status, run.full_output)
 			.where(run.name == name)
 			.limit(1)
 			.run(as_dict=True)
@@ -243,7 +243,7 @@ def get_active_run(current: str | None = None) -> dict | None:
 	def _oldest(status: str):
 		rows = (
 			frappe.qb.from_(run)
-			.select(run.name, run.test_method, run.status, run.full_output)
+			.select(run.name, run.test_method, run.run_scope, run.status, run.full_output)
 			.where(run.status == status)
 			.orderby(run.creation, order=frappe.qb.asc)
 			.limit(1)

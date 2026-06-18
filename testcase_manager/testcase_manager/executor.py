@@ -572,11 +572,24 @@ def _streaming_result_class():
 	emits a "▸ running name…" line in ``startTest`` so the UI shows which test
 	is currently executing, in real time. Built lazily so the import of
 	frappe.testing happens inside the worker.
+
+	It also resets the session user to Administrator before every test. On a
+	long-lived RQ worker the test classes stay cached in sys.modules between runs,
+	so Frappe's UnitTestCase.setUpClass short-circuits on its
+	``_unit_test_case_class_setup_done`` flag and skips its own
+	``frappe.set_user("Administrator")``. If an earlier test leaked a non-admin
+	user (e.g. test@example.com) without restoring it, the next test's setUp would
+	then run as that user and fail permission checks (PermissionError on insert).
+	Resetting per-test makes every test start as Administrator like the CLI does.
 	"""
 	from frappe.testing.result import TestResult
 
 	class StreamingTestResult(TestResult):
 		def startTest(self, test):
+			# Guarantee each test starts as Administrator, regardless of any user a
+			# previous test left set (see class docstring).
+			if frappe.session.user != "Administrator":
+				frappe.set_user("Administrator")
 			super().startTest(test)
 			method = self.getTestMethodName(test)
 			self.stream.write(f"  ▸ running {method} …\n")
