@@ -11,11 +11,11 @@
       <div class="flex items-center gap-3 text-xs text-ink-gray-5">
         <Button
           v-if="canRerun"
-          variant="solid"
+          variant="subtle"
           theme="red"
           size="sm"
           :loading="rerunning"
-          label="Rerun failed & errors"
+          label="Rerun failed"
           title="Re-run only the failed and errored tests as a new batch"
           @click="rerunFailed"
         >

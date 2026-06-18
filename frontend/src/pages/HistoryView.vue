@@ -241,11 +241,11 @@
             <div class="flex flex-shrink-0 items-center gap-3">
               <Button
                 v-if="previewSummary && previewSummary.failed + previewSummary.errors > 0"
-                variant="solid"
+                variant="subtle"
                 theme="red"
                 size="sm"
                 :loading="rerunning"
-                label="Rerun failed & errors"
+                label="Rerun failed"
                 title="Re-run only the failed and errored tests as a new batch"
                 @click="rerunFailed(preview.name, close)"
               >
