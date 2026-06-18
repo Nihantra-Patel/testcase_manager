@@ -614,6 +614,13 @@ def _run_tests_in_process(tc, run_scope: str, stream: "RealtimeLineStream") -> l
 		_invalidate_test_module(tc.python_path)
 
 	def _go():
+		# The job is enqueued from a logged-in web request, so the RQ worker can
+		# inherit that request's session user (e.g. testpassword@example.com).
+		# Frappe's test framework — and the CLI runner — always run as Administrator,
+		# so test helpers like make_item() call insert() without ignore_permissions
+		# and rely on the session being Administrator. Force it here, otherwise the
+		# create permission check fails on a fresh site (PermissionError on Item).
+		frappe.set_user("Administrator")
 		runner = TestRunner(
 			stream=stream,
 			verbosity=2,
@@ -660,6 +667,10 @@ def _run_batch_in_process(tcs: list, stream: "RealtimeLineStream") -> list:
 		_invalidate_test_module(p)
 
 	def _go():
+		# Run as Administrator like the CLI/test framework does; the worker may have
+		# inherited the enqueuing request's session user, which fails permission
+		# checks in test helpers (e.g. make_item) on a fresh site. See _run_tests_in_process.
+		frappe.set_user("Administrator")
 		runner = TestRunner(
 			stream=stream, verbosity=2, cfg=TestConfig(tests=methods), resultclass=_streaming_result_class()
 		)

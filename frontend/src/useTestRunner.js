@@ -74,6 +74,10 @@ function createRunner() {
 
   function tally(text) {
     if (!DONE_LINE.test(text)) return
+    // Never let the live count exceed the known total — error tests can emit extra
+    // ✖/traceback lines that would otherwise push `done` past `total` (the final
+    // count is corrected authoritatively in renderSummary).
+    if (progress.total && progress.done >= progress.total) return
     progress.done += 1
     if (PASS_LINE.test(text)) progress.passed += 1
     else progress.failed += 1 // ✖ — a failure or error (split exactly at completion)
@@ -200,6 +204,11 @@ function createRunner() {
     progress.passed = session.passed
     progress.failed = session.failed
     progress.errors = session.errors
+    // `progress.done` is tallied from stream lines while running, which can
+    // over-count (error tests emit extra ✖/traceback lines), so the footer could
+    // show e.g. 2655 / 2615. The completion event is authoritative: the number of
+    // tests that finished is exactly passed + failed + errors.
+    progress.done = session.passed + session.failed + session.errors
     // No console summary line / banner — the footer shows the final tally.
     status.value = ok ? 'Passed' : 'Failed'
   }
