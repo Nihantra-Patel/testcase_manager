@@ -205,8 +205,14 @@
                   </div>
                   <div class="truncate text-xs text-ink-gray-4">{{ tc.python_path }}</div>
                 </div>
+                <!-- Per-row run. Hidden once 2+ tests are selected, where "Run
+                     Selected" takes over (a single tick still runs from the row).
+                     Gray subtle button reads well in both themes, with a clear
+                     hover state. -->
                 <Button
-                  variant="solid"
+                  v-if="selected.length < 2"
+                  variant="subtle"
+                  theme="gray"
                   size="sm"
                   :disabled="!canStartNewRun"
                   :title="
@@ -222,18 +228,23 @@
             </div>
           </template>
         </div>
+        <!-- Run-selected bar appears only for a multi-selection (2+). A single tick
+             is run from the row's own play button, so the bar doesn't compete. -->
         <div
-          class="flex h-[52px] flex-shrink-0 items-center border-t border-outline-gray-2 px-2"
+          v-if="selected.length > 1"
+          class="flex h-[52px] flex-shrink-0 items-center gap-2 border-t border-outline-gray-2 px-2"
         >
           <Button
-            class="w-full"
+            class="flex-1"
             variant="solid"
-            :disabled="!selected.length || !canStartNewRun"
+            theme="gray"
+            :disabled="!canStartNewRun"
             @click="runSelected"
           >
             <template #prefix><FeatherIcon name="play" class="h-4 w-4" /></template>
             Run Selected ({{ selected.length }})
           </Button>
+          <Button variant="ghost" :label="'Clear'" @click="selected = []" />
         </div>
       </div>
 
