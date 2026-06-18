@@ -206,6 +206,65 @@ def _executing_run_names() -> list[str]:
 		return []
 
 
+def _job_alive(run_name: str) -> bool:
+	"""True if this run's RQ job still exists (queued/started/deferred/finished).
+
+	A run with no job left in RQ — yet still Pending/Running in the DB — means the
+	worker died without recording an outcome (SIGKILL, crash before our handlers).
+	Returns True on any uncertainty so we never reap a job that's actually alive.
+	"""
+	try:
+		from frappe.utils.background_jobs import create_job_id, get_redis_conn
+		from rq.job import Job
+
+		conn = get_redis_conn()
+		# Background runs use one of two job_id prefixes (single/app vs. batch).
+		for prefix in ("tc_run_", "tc_batch_"):
+			try:
+				Job.fetch(create_job_id(f"{prefix}{run_name}"), connection=conn)
+				return True  # job record still present in Redis
+			except Exception:
+				continue
+		return False
+	except Exception:
+		return True  # can't tell → assume alive, don't reap
+
+
+def _reap_dead_runs() -> None:
+	"""Mark Pending/Running runs Error when their worker died without recording it.
+
+	Inline (non-realtime) runs have no RQ job, so they're excluded via ``realtime``.
+	A short grace period avoids racing a job that was just enqueued but not yet
+	registered in RQ. Best-effort: never raise from here.
+	"""
+	try:
+		from frappe.utils import add_to_date, now_datetime
+
+		# Only background runs are RQ-backed; give a freshly enqueued job time to appear.
+		cutoff = add_to_date(now_datetime(), seconds=-30)
+		candidates = frappe.get_all(
+			"Testcase Run",
+			filters={"status": ["in", ["Pending", "Running"]], "realtime": 1, "creation": ["<", cutoff]},
+			pluck="name",
+		)
+		for name in candidates:
+			if _job_alive(name):
+				continue
+			frappe.db.set_value(
+				"Testcase Run",
+				name,
+				{
+					"status": "Error",
+					"end_time": now_datetime(),
+					"result": "Run did not finish — its worker stopped before recording a result.",
+				},
+				update_modified=False,
+			)
+			frappe.db.commit()
+	except Exception:
+		pass
+
+
 @frappe.whitelist()
 def get_active_run(current: str | None = None) -> dict | None:
 	"""The run a worker is executing right now (from RQ, not the stale DB status).
@@ -215,12 +274,16 @@ def get_active_run(current: str | None = None) -> dict | None:
 	another only once it finishes. Falls back to the oldest DB Pending/Running when
 	RQ reports nothing executing (inline runs, or before a worker picks one up).
 	"""
+	# Clear out runs whose worker died without recording an outcome, so the UI stops
+	# following/polling them instead of waiting on a run that will never finish.
+	_reap_dead_runs()
+
 	run = frappe.qb.DocType("Testcase Run")
 
 	def _fetch(name: str):
 		rows = (
 			frappe.qb.from_(run)
-			.select(run.name, run.test_method, run.run_scope, run.status, run.full_output)
+			.select(run.name, run.test_method, run.run_scope, run.total_tests, run.status, run.full_output)
 			.where(run.name == name)
 			.limit(1)
 			.run(as_dict=True)
@@ -243,7 +306,7 @@ def get_active_run(current: str | None = None) -> dict | None:
 	def _oldest(status: str):
 		rows = (
 			frappe.qb.from_(run)
-			.select(run.name, run.test_method, run.run_scope, run.status, run.full_output)
+			.select(run.name, run.test_method, run.run_scope, run.total_tests, run.status, run.full_output)
 			.where(run.status == status)
 			.orderby(run.creation, order=frappe.qb.asc)
 			.limit(1)

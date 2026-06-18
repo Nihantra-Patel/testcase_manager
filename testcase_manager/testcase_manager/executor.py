@@ -278,6 +278,78 @@ class RealtimeLineStream:
 # ---------------------------------------------------------------------------
 
 
+def _run_name_from_job(job) -> str | None:
+	"""Pull our run_name out of an RQ job's kwargs (both single + batch jobs use it)."""
+	try:
+		return (job.kwargs or {}).get("run_name")
+	except Exception:
+		return None
+
+
+def mark_run_failed_on_job_failure(job, connection, exc_type, exc_value, traceback) -> None:
+	"""
+	RQ on_failure callback: mark the Testcase Run as Error when its job dies.
+
+	This is the safety net for failures the in-job try/except can't catch — e.g. an
+	error before the try-block (stale-bytecode ImportError in before_job hooks) or a
+	worker killed mid-run. Without it the run stays Pending/Running forever and the
+	UI polls it endlessly. Best-effort and defensive: a failing callback must not
+	mask the original job error.
+	"""
+	import traceback as _tb
+
+	run_name = _run_name_from_job(job)
+	if not run_name:
+		return
+	try:
+		import frappe
+		from frappe.utils import now_datetime
+
+		# The worker's frappe context may be torn down at failure time; ensure we're
+		# connected to the right site before touching the DB.
+		site = (job.kwargs or {}).get("site") or getattr(frappe.local, "site", None)
+		if site and getattr(frappe.local, "site", None) != site:
+			frappe.init(site=site)
+			frappe.connect()
+
+		if frappe.db.get_value("Testcase Run", run_name, "status") in ("Pending", "Running"):
+			err = "".join(_tb.format_exception(exc_type, exc_value, traceback))[-4000:]
+			existing = frappe.db.get_value("Testcase Run", run_name, "full_output") or ""
+			full_output = (existing + "\n\nFATAL ERROR (job failed):\n" + err).strip()
+			frappe.db.set_value(
+				"Testcase Run",
+				run_name,
+				{
+					"status": "Error",
+					"end_time": now_datetime(),
+					"result": f"Job failed: {exc_value}",
+					"full_output": full_output,
+					"traceback": err,
+				},
+				update_modified=False,
+			)
+			frappe.db.commit()
+			# Tell the UI so it stops following/polling this run immediately.
+			_publish(
+				run_name,
+				"test_completed",
+				{
+					"run_name": run_name,
+					"status": "Error",
+					"error": str(exc_value),
+					"full_output": full_output,
+				},
+			)
+	except Exception:
+		# Never let the failure handler itself raise — that would hide the real error.
+		try:
+			import frappe
+
+			frappe.log_error(f"Testcase Manager: failed to mark run {run_name} as Error after job failure")
+		except Exception:
+			pass
+
+
 def execute_test_case_job(run_name: str) -> None:
 	"""
 	Background job executed by RQ.

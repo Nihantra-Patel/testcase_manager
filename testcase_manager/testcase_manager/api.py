@@ -94,6 +94,13 @@ def run_test_case(test_case: str, run_scope: str = "Method", background: int | s
 	run.triggered_by = frappe.session.user
 	run.status = "Pending"
 	run.run_scope = run_scope
+	# Planned test count for live "done / total" progress: a whole-app run is every
+	# active test in the app; a single method/file run is one. Stored on the run so
+	# the UI keeps the total after a reload or when it follows the run mid-stream.
+	if run_scope == "App":
+		run.total_tests = frappe.db.count("Testcase", {"app": tc.app, "status": "Active"})
+	else:
+		run.total_tests = 1
 	use_bg = str(background) not in ("0", "", "false", "False", "None")
 	run.realtime = 1 if use_bg else 0
 	run.insert(ignore_permissions=True)
@@ -107,6 +114,9 @@ def run_test_case(test_case: str, run_scope: str = "Method", background: int | s
 			queue=queue,
 			timeout=timeout,
 			job_id=f"tc_run_{run.name}",
+			# Mark the run Error if the job dies for any reason the in-job handler
+			# can't catch (crash before the try-block, killed worker, etc.).
+			on_failure="testcase_manager.testcase_manager.executor.mark_run_failed_on_job_failure",
 			run_name=run.name,
 		)
 	else:
@@ -190,6 +200,7 @@ def run_test_batch(test_cases: str | list, background: int | str | bool = 0) -> 
 	run.triggered_by = frappe.session.user
 	run.status = "Pending"
 	run.run_scope = "Batch"
+	run.total_tests = len(test_cases)  # for live "done / total" progress
 	use_bg = str(background) not in ("0", "", "false", "False", "None")
 	run.realtime = 1 if use_bg else 0
 	run.insert(ignore_permissions=True)
@@ -202,6 +213,9 @@ def run_test_batch(test_cases: str | list, background: int | str | bool = 0) -> 
 			queue=queue,
 			timeout=timeout,
 			job_id=f"tc_batch_{run.name}",
+			# Mark the run Error if the job dies for any reason the in-job handler
+			# can't catch (crash before the try-block, killed worker, etc.).
+			on_failure="testcase_manager.testcase_manager.executor.mark_run_failed_on_job_failure",
 			run_name=run.name,
 			test_cases=test_cases,
 		)

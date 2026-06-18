@@ -17,6 +17,7 @@
   "reference_type",
   "test_method",
   "python_path",
+  "total_tests",
   "section_break_timing",
   "start_time",
   "end_time",
@@ -114,6 +115,13 @@
    "fieldname": "python_path",
    "fieldtype": "Data",
    "label": "Python Module Path",
+   "read_only": 1
+  },
+  {
+   "description": "Number of tests this run was started with (for live progress).",
+   "fieldname": "total_tests",
+   "fieldtype": "Int",
+   "label": "Total Tests",
    "read_only": 1
   },
   {

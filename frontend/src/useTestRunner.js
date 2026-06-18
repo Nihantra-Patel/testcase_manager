@@ -341,9 +341,12 @@ function createRunner() {
   }
 
   // Infer a run's total test count so resume()/follow() can show "done / total"
-  // (not just "done"). A batch's test_method is "N tests (batch)" — the count is
-  // in the label; a single-method run is 1; otherwise unknown (0 → no "/ total").
+  // (not just "done"). The run stores total_tests (single=1, batch=N, app=app's
+  // test count) — use it. Fall back to older heuristics for runs created before
+  // total_tests existed: a batch's test_method is "N tests (batch)"; a single
+  // method/file is 1; otherwise unknown (0 → no "/ total").
   function inferTotal(run) {
+    if (run.total_tests) return +run.total_tests
     const m = /^(\d+)\s+tests?\s*\(batch\)/i.exec(run.test_method || '')
     if (m) return +m[1]
     if (run.run_scope === 'Method' || run.run_scope === 'File') return 1
