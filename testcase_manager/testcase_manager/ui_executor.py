@@ -265,19 +265,18 @@ def _hint_common_failures(output: str, stream: "RealtimeLineStream") -> None:
 		)
 		stream.flush()
 	elif login_401:
-		# Login is allowed but the credentials were rejected — almost always a
-		# missing `admin_password` in the site config (run-ui-tests passes it to
-		# cy.login() as CYPRESS_adminPassword), or a missing test user/fixture.
+		# Login is allowed but the credentials were rejected. We provision the test
+		# user + its password ourselves each run, so a 401 here usually means
+		# password login is restricted by some other policy (LDAP/SSO-only, social
+		# login enforced) or the spec logs in as a different user than our test user.
 		stream.write(
 			"\n"
 			"────────────────────────────────────────────────────────\n"
 			"NOTE: Cypress login was rejected (401 on /api/method/login).\n"
-			"  Login is allowed, so the credentials are wrong. Most often the\n"
-			"  site has no `admin_password` in its config — run-ui-tests passes\n"
-			"  that to cy.login(). Check / set it:\n"
-			"    bench --site <site> set-admin-password <password>\n"
-			"  (the password must match what cy.login() uses — the Administrator\n"
-			"  password). Also ensure the spec's test user/fixtures exist.\n"
+			f"  We auto-provision the test user '{_CYPRESS_TEST_USER}' with a fresh\n"
+			"  password each run, so the credentials should be valid. A 401 here\n"
+			"  usually means the site enforces SSO / social login only, or the spec\n"
+			"  logs in as a different user. Check the site's login policy.\n"
 			"────────────────────────────────────────────────────────\n"
 		)
 		stream.flush()
@@ -306,6 +305,60 @@ def _hint_common_failures(output: str, stream: "RealtimeLineStream") -> None:
 		stream.flush()
 
 
+# Frappe's cypress.config.js logs in as this user (`testUser`); cy.login() sends
+# whatever password we pass as CYPRESS_adminPassword. We provision this user
+# ourselves so we never depend on a plaintext `admin_password` in site_config.
+_CYPRESS_TEST_USER = "frappe@example.com"
+
+
+def provision_cypress_user() -> str:
+	"""Create/reuse the dedicated Cypress login user and return a FRESH password.
+
+	Security: we do NOT read any stored password (passwords are one-way hashed and
+	can't be retrieved), and we do NOT keep `admin_password` in site config. Instead
+	we (re)set a freshly generated random password on a dedicated test user on every
+	run, hand it to Cypress via an env var only, and never persist or log it. The
+	user is created once (full rights, so the Frappe specs that need admin actions
+	work) and reused on later runs; only its password rotates.
+
+	Returned to the caller so it can be exported as CYPRESS_adminPassword. Also
+	callable from CI via `bench execute` for the same purpose. This is a
+	dev-testing-only app — the user is a test fixture, not a real account.
+	"""
+	password = frappe.generate_hash(length=24)
+
+	if not frappe.db.exists("User", _CYPRESS_TEST_USER):
+		user = frappe.new_doc("User")
+		user.email = _CYPRESS_TEST_USER
+		user.first_name = "Cypress"
+		user.last_name = "Test"
+		user.send_welcome_email = 0
+		user.new_password = password
+		# Full rights so admin-level Frappe specs (create DocType, etc.) succeed.
+		user.append("roles", {"role": "System Manager"})
+		user.insert(ignore_permissions=True)
+	else:
+		# Reuse the existing user; just rotate its password for this run.
+		user = frappe.get_doc("User", _CYPRESS_TEST_USER)
+		if not any(r.role == "System Manager" for r in user.roles):
+			user.append("roles", {"role": "System Manager"})
+		user.new_password = password
+		user.save(ignore_permissions=True)
+	# Commit so the subprocess (separate connection) sees the new password.
+	frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+	return password
+
+
+def _ensure_cypress_test_user(stream: "RealtimeLineStream") -> str:
+	"""Provision the Cypress test user for a run and note it in the console."""
+	existed = frappe.db.exists("User", _CYPRESS_TEST_USER)
+	password = provision_cypress_user()
+	if not existed:
+		stream.write(f"• Created Cypress test user {_CYPRESS_TEST_USER} (System Manager).\n")
+		stream.flush()
+	return password
+
+
 def _run_cypress(tc, stream: "RealtimeLineStream") -> tuple[str, int]:
 	"""Spawn `bench run-ui-tests` for one spec and stream its stdout into *stream*.
 
@@ -315,6 +368,9 @@ def _run_cypress(tc, stream: "RealtimeLineStream") -> tuple[str, int]:
 	site = frappe.local.site
 	app = tc.app
 	spec = tc.test_file_path
+
+	# Provision the login credential ourselves (no plaintext password in config).
+	test_password = _ensure_cypress_test_user(stream)
 
 	cmd = [
 		"bench",
@@ -339,6 +395,9 @@ def _run_cypress(tc, stream: "RealtimeLineStream") -> tuple[str, int]:
 
 	# Run from the bench root so the `bench` CLI resolves the site and apps. Merge
 	# stderr into stdout so Cypress' progress (which it writes to both) all streams.
+	# CYPRESS_adminPassword is the per-run password for the test user above; it
+	# overrides whatever run-ui-tests would read from site config, so no plaintext
+	# admin_password is needed. Passed via env only — never written or logged.
 	proc = subprocess.Popen(
 		cmd,
 		cwd=_bench_path(),
@@ -346,14 +405,28 @@ def _run_cypress(tc, stream: "RealtimeLineStream") -> tuple[str, int]:
 		stderr=subprocess.STDOUT,
 		text=True,
 		bufsize=1,  # line-buffered → lines reach the console as they're produced
-		env={**os.environ, "FORCE_COLOR": "0"},  # plain text; we strip ANSI anyway
+		env={
+			**os.environ,
+			"FORCE_COLOR": "0",  # plain text; we strip ANSI anyway
+			"CYPRESS_adminPassword": test_password,
+		},
 	)
 
 	try:
 		for line in proc.stdout:  # blocks until each newline, streaming live
-			stream.write(_strip_ansi(line))
+			# Belt-and-suspenders: if Cypress ever dumps the failed login request
+			# body (which contains pwd), redact the password before it reaches the
+			# console or the saved run output.
+			stream.write(_redact(_strip_ansi(line), test_password))
 	finally:
 		proc.stdout.close()
 		returncode = proc.wait()
 
 	return stream.getvalue(), returncode
+
+
+def _redact(text: str, secret: str) -> str:
+	"""Replace any occurrence of *secret* in *text* with a placeholder."""
+	if secret and secret in text:
+		return text.replace(secret, "***")
+	return text

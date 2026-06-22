@@ -235,14 +235,22 @@ jobs:
         env:
           CI: 'Yes'
 
-      # Cypress logs in with username + password, so the test site must allow it
-      # (mirrors the hint the in-app runner prints on a 401).
-      - name: Allow password login + tests
+      # Cypress logs in with username + password, so the test site must allow it.
+      # We do NOT store a plaintext admin_password; instead we provision a
+      # dedicated test user with a fresh random password (same helper the in-app
+      # runner uses) and pass it via CYPRESS_adminPassword — mirroring the app.
+      - name: Provision Cypress test user
+        id: cypress_user
         if: steps.detect.outputs.has_specs == 'true'
         working-directory: /home/runner/frappe-bench
         run: |
           bench --site test_site set-config allow_tests true
           bench --site test_site set-config disable_user_pass_login 0
+          PW=$(bench --site test_site execute \
+            testcase_manager.testcase_manager.ui_executor.provision_cypress_user \
+            | tail -n1 | tr -d '"')
+          echo "::add-mask::$PW"
+          echo "pw=$PW" >> $GITHUB_OUTPUT
 
       - name: Start bench server
         if: steps.detect.outputs.has_specs == 'true'
@@ -256,8 +264,9 @@ jobs:
           done
 
       # Run the app's Cypress specs headlessly. `bench run-ui-tests` installs
-      # Cypress + plugins automatically (no manual setup), and we pass
-      # `--config video=false` to match the in-app runner exactly.
+      # Cypress + plugins automatically (no manual setup); we pass
+      # `--config video=false` to match the in-app runner, and the provisioned
+      # test user's password via CYPRESS_adminPassword (masked in logs).
       - name: Run UI tests
         if: steps.detect.outputs.has_specs == 'true'
         working-directory: /home/runner/frappe-bench
@@ -265,3 +274,4 @@ jobs:
           bench --site test_site run-ui-tests testcase_manager --headless --browser chrome --config video=false
         env:
           CI: 'Yes'
+          CYPRESS_adminPassword: ${{ steps.cypress_user.outputs.pw }}

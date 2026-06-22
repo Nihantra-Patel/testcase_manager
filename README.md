@@ -222,12 +222,19 @@ Python runs via the same run-lock.
 
 > **First-run setup.** The very first UI run installs Cypress and its plugins
 > (~50s, one-time) and verifies the Cypress binary; subsequent runs skip that.
-> Cypress logs in with username + password (`cy.login()`), so the test site must
-> allow password login — if it's disabled you'll get `401 on /api/method/login`
-> and the console prints a hint. Enable it with:
-> `bench --site <site> set-config disable_user_pass_login 0` (or uncheck
-> *Disable Username/Password Login* in System Settings). Video recording is
-> turned off for runner-launched runs since the console already captures output.
+> Video recording is turned off for runner-launched runs since the console
+> already captures output.
+>
+> **Login / credentials (no stored password).** Frappe's Cypress specs log in via
+> `cy.login()`. Rather than keep a plaintext `admin_password` in `site_config.json`,
+> Testcase Manager provisions a dedicated test user (`frappe@example.com`, System
+> Manager) and sets a **freshly generated random password on every run**, passed
+> to Cypress through an environment variable only — never written to a file, the
+> site config, the database (passwords are one-way hashed), or the console (it's
+> redacted from streamed output). The user is created once and reused; only its
+> password rotates. This app is for **dev/test sites only** — that user is a test
+> fixture, not a real account. A `401 on /api/method/login` therefore points at a
+> site login policy (e.g. SSO-only), not a missing password.
 
 > **Make UI testing faster — a tiered strategy.** A real browser run is slow by
 > nature, so the fastest UI test is the one that doesn't open a browser. Think in
