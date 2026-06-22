@@ -19,6 +19,7 @@ import os
 import re
 import subprocess
 import time
+from pathlib import Path
 
 import frappe
 from frappe.utils import now_datetime
@@ -366,6 +367,76 @@ def _ensure_cypress_test_user(stream: "RealtimeLineStream") -> str:
 	return password
 
 
+# Cypress version Testcase Manager prefers. Frappe's run-ui-tests pins cypress@^13,
+# whose Electron build can fail on very new macOS ("bad option: --no-sandbox"). We
+# pre-install a newer line into the bench's frappe node_modules so frappe's command
+# finds Cypress already present and skips its own (older) install. Overridable via
+# the TC_CYPRESS_VERSION env var / site config for environments that need a pin.
+_PREFERRED_CYPRESS = "^15"
+# The plugins frappe's run-ui-tests also expects to exist (else it reinstalls the
+# whole set, including its cypress@^13). Mirror them so our pre-install satisfies
+# frappe's presence check.
+_CYPRESS_PLUGINS = (
+	"@4tw/cypress-drag-drop@^2",
+	"cypress-real-events",
+	"@testing-library/cypress@^10",
+	"@testing-library/dom@8.17.1",
+	"@cypress/code-coverage@^3",
+	"cypress-split@^1.0.0",
+)
+
+
+def _frappe_node_bin() -> str | None:
+	"""Path to apps/frappe/node_modules/.bin (where run-ui-tests looks for cypress)."""
+	frappe_path = Path(frappe.get_app_source_path("frappe"))
+	node_bin = frappe_path / "node_modules" / ".bin"
+	return str(node_bin) if node_bin.is_dir() else None
+
+
+def _installed_cypress_major(node_bin: str) -> int | None:
+	"""Major version of the cypress installed in *node_bin*, or None if absent."""
+	pkg = Path(node_bin) / ".." / "cypress" / "package.json"
+	try:
+		import json as _json
+
+		data = _json.loads(pkg.read_text())
+		return int(str(data.get("version", "0")).split(".")[0])
+	except Exception:
+		return None
+
+
+def _ensure_cypress(stream: "RealtimeLineStream") -> None:
+	"""Make sure a recent Cypress (+ frappe's plugins) is installed before a run.
+
+	If frappe's node_modules already has Cypress >= 14, leave it. Otherwise install
+	our preferred line + the plugins so frappe's run-ui-tests uses it instead of
+	pulling its pinned cypress@^13. Best-effort: a failure here just lets frappe's
+	own install run as before.
+	"""
+	want = frappe.conf.get("tc_cypress_version") or os.environ.get("TC_CYPRESS_VERSION") or _PREFERRED_CYPRESS
+	frappe_path = Path(frappe.get_app_source_path("frappe"))
+	node_bin = frappe_path / "node_modules" / ".bin"
+	major = _installed_cypress_major(str(node_bin)) if node_bin.is_dir() else None
+	if major and major >= 14:
+		return  # a recent Cypress is already present — nothing to do.
+
+	stream.write(f"• Ensuring Cypress {want} is installed (one-time)…\n")
+	stream.flush()
+	pkgs = [f"cypress@{want}", *_CYPRESS_PLUGINS]
+	# Install into frappe's package (where run-ui-tests resolves cypress), without
+	# touching its lockfile, mirroring what frappe's own installer does.
+	proc = subprocess.run(
+		["yarn", "add", "--no-lockfile", *pkgs],
+		cwd=str(frappe_path),
+		capture_output=True,
+		text=True,
+	)
+	if proc.returncode != 0:
+		stream.write("  (couldn't pre-install Cypress; falling back to frappe's default)\n")
+		stream.write(_redact(proc.stderr[-500:], "") if proc.stderr else "")
+	stream.flush()
+
+
 def _run_cypress(app: str, specs: list[str], stream: "RealtimeLineStream") -> tuple[str, int]:
 	"""Spawn `bench run-ui-tests` for one or more specs and stream stdout into *stream*.
 
@@ -374,6 +445,9 @@ def _run_cypress(app: str, specs: list[str], stream: "RealtimeLineStream") -> tu
 	the UI equivalent of the Python tier's single-job batch.
 	"""
 	site = frappe.local.site
+
+	# Prefer a newer Cypress than frappe's pinned ^13 (see _ensure_cypress).
+	_ensure_cypress(stream)
 
 	# Provision the login credential ourselves (no plaintext password in config).
 	test_password = _ensure_cypress_test_user(stream)
