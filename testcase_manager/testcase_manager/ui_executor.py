@@ -325,25 +325,24 @@ def provision_cypress_user() -> str:
 	callable from CI via `bench execute` for the same purpose. This is a
 	dev-testing-only app — the user is a test fixture, not a real account.
 	"""
+	from frappe.utils.password import update_password
+
 	password = frappe.generate_hash(length=24)
 
 	if not frappe.db.exists("User", _CYPRESS_TEST_USER):
+		# Create the user once, with full rights so admin-level Frappe specs
+		# (create DocType, etc.) succeed.
 		user = frappe.new_doc("User")
 		user.email = _CYPRESS_TEST_USER
 		user.first_name = "Cypress"
 		user.last_name = "Test"
 		user.send_welcome_email = 0
-		user.new_password = password
-		# Full rights so admin-level Frappe specs (create DocType, etc.) succeed.
 		user.append("roles", {"role": "System Manager"})
 		user.insert(ignore_permissions=True)
-	else:
-		# Reuse the existing user; just rotate its password for this run.
-		user = frappe.get_doc("User", _CYPRESS_TEST_USER)
-		if not any(r.role == "System Manager" for r in user.roles):
-			user.append("roles", {"role": "System Manager"})
-		user.new_password = password
-		user.save(ignore_permissions=True)
+
+	# Rotate the password by writing the auth hash directly (no User .save(), so no
+	# optimistic-lock TimestampMismatchError when queued specs provision in turn).
+	update_password(_CYPRESS_TEST_USER, password)
 	# Commit so the subprocess (separate connection) sees the new password.
 	frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
 	return password
