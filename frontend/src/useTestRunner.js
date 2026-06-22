@@ -310,6 +310,37 @@ function createRunner() {
     }
   }
 
+  // Queue several Cypress specs. Each spec is its own background job (one browser
+  // per spec — they can't share a batch), so we enqueue them all; the backend
+  // run-lock serializes execution and the console auto-follows the active run.
+  async function runUiSpecs(specs) {
+    if (!specs || !specs.length) return
+    if (specs.length === 1) {
+      const s = specs[0]
+      return runUiSpec(s.name, s.test_file || s.test_method, s.ui_test_count || 0)
+    }
+    startSession(`${specs.length} UI specs (queued)`, 0)
+    status.value = 'Running'
+    appendLine(`▶ Queued ${specs.length} UI specs — they run one at a time.`)
+    appendLine('The console follows whichever spec is executing.')
+    appendLine('')
+    let firstRun = null
+    for (const s of specs) {
+      try {
+        const res = await api.runUiTest(s.name)
+        if (!firstRun) firstRun = res.run_name
+      } catch (e) {
+        appendLine(`✖ Failed to queue ${s.test_file || s.name}.`)
+      }
+    }
+    if (firstRun) {
+      lastRun.value = firstRun
+      subscribe(firstRun)
+    } else {
+      endSession()
+    }
+  }
+
   async function runBatch(names, realtime = true) {
     startSession(`${names.length} tests (batch)`, names.length)
     status.value = 'Running'
@@ -464,6 +495,7 @@ function createRunner() {
     onAdvance,
     runOne,
     runUiSpec,
+    runUiSpecs,
     runSelected,
     runEntireApp,
     stop,

@@ -27,21 +27,21 @@
           </button>
         </div>
       </div>
-      <div class="w-[150px]">
+      <div class="w-[140px]">
         <div class="mb-1 text-xs font-semibold text-ink-gray-5">App</div>
         <Select v-model="filters.app" :options="appOptions" class="w-full" />
       </div>
-      <div v-if="kind === 'Python'" class="w-[130px]">
+      <div v-if="kind === 'Python'" class="w-[120px]">
         <div class="mb-1 text-xs font-semibold text-ink-gray-5">Type</div>
         <Select v-model="filters.type" :options="typeOptions" class="w-full" />
       </div>
-      <div v-if="kind === 'Python'" class="w-[220px]">
+      <div v-if="kind === 'Python'" class="w-[180px]">
         <div class="mb-1 truncate text-xs font-semibold text-ink-gray-5">
           {{ refLabel }}
         </div>
         <Select v-model="filters.ref" :options="refOptions" class="w-full" />
       </div>
-      <div class="w-[200px]">
+      <div class="w-[170px]">
         <div class="mb-1 text-xs font-semibold text-ink-gray-5">
           {{ kind === 'UI' ? 'Search Spec' : 'Search Method' }}
         </div>
@@ -202,7 +202,7 @@
             <span class="text-xs font-bold text-ink-gray-5">Tests</span>
             <span class="text-xs text-ink-gray-5">{{ countLabel }}</span>
           </div>
-          <label v-if="kind === 'Python'" class="flex cursor-pointer items-center gap-1.5 text-xs">
+          <label class="flex cursor-pointer items-center gap-1.5 text-xs">
             <input type="checkbox" :checked="allSelected" @change="toggleAll" class="tc-checkbox" />
             Select all
           </label>
@@ -225,7 +225,6 @@
                 class="flex items-center gap-2 border-b border-outline-gray-1 px-3 py-1.5 hover:bg-surface-gray-2"
               >
                 <input
-                  v-if="kind === 'Python'"
                   type="checkbox"
                   :value="tc.name"
                   v-model="selected"
@@ -237,9 +236,9 @@
                     <span
                       v-if="tc.test_kind === 'UI' && tc.ui_test_count"
                       class="flex-shrink-0 rounded bg-surface-gray-3 px-1.5 py-0.5 text-[10px] font-medium text-ink-gray-6"
-                      :title="tc.ui_test_names"
+                      :title="`This spec contains ${tc.ui_test_count} test(s):\n${tc.ui_test_names}`"
                     >
-                      {{ tc.ui_test_count }} it()
+                      {{ tc.ui_test_count }} {{ tc.ui_test_count === 1 ? 'test' : 'tests' }}
                     </span>
                     <span
                       v-if="impact.reasons[tc.name]"
@@ -782,7 +781,14 @@ function nudgeOwnRun() {
   setTimeout(refreshActiveRuns, 1800)
 }
 async function runSelected() {
-  await runner.runSelected(selected.value, records.value, realtime.value)
+  if (kind.value === 'UI') {
+    // Each Cypress spec is its own background job (one browser per spec), so a
+    // multi-select queues them: enqueue each, the run-lock serializes execution.
+    const specs = records.value.filter((r) => selected.value.includes(r.name))
+    await runner.runUiSpecs(specs)
+  } else {
+    await runner.runSelected(selected.value, records.value, realtime.value)
+  }
   selected.value = [] // clear the selection once it's been submitted to run
   nudgeOwnRun()
 }
