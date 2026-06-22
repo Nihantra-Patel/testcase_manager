@@ -98,11 +98,13 @@ def _parse_cypress_counts(output: str) -> tuple[int, int, int, int]:
 	return total, passed, failed, pending
 
 
-def execute_ui_test_job(run_name: str) -> None:
-	"""Background job: run one Cypress spec, stream output, persist results.
+def execute_ui_test_job(run_name: str, test_cases: list[str] | None = None) -> None:
+	"""Background job: run one or more Cypress specs in a SINGLE run, stream output.
 
-	Mirrors ``execute_test_case_job`` for the Python tier so History, the live
-	console and status badges behave identically.
+	*test_cases* is the list of Testcase names to run (a single-spec run passes one;
+	a multi-select passes several). They all execute in one Cypress invocation —
+	mirroring the Python tier, where a multi-selection is one batch job, not N jobs.
+	Falls back to the run's anchor ``test_case`` when *test_cases* isn't given.
 	"""
 	task_id = run_name
 
@@ -122,15 +124,22 @@ def execute_ui_test_job(run_name: str) -> None:
 
 	try:
 		run_doc = frappe.db.get_value("Testcase Run", run_name, ["test_case", "app"], as_dict=True)
-		tc = frappe.db.get_value(
-			"Testcase", run_doc.test_case, ["app", "test_file", "test_file_path"], as_dict=True
-		)
+		names = list(test_cases) if test_cases else [run_doc.test_case]
+		# Resolve each selected spec to (app, spec path). All specs belong to one app
+		# (the runner only lets you select within a single app's list).
+		specs = []
+		app = run_doc.app
+		for name in names:
+			tc = frappe.db.get_value("Testcase", name, ["app", "test_file_path"], as_dict=True)
+			if tc and tc.test_file_path:
+				specs.append(tc.test_file_path)
+				app = tc.app
 
 		# Serialize with Python runs too: a UI run boots a browser against the same
 		# site, so overlapping a heavy Python run only fights for the DB. Reuse the
 		# global run-lock for consistent, deadlock-free behaviour across both tiers.
 		with _run_lock(stream):
-			output, returncode = _run_cypress(tc, stream)
+			output, returncode = _run_cypress(app, specs, stream)
 
 		_hint_common_failures(output, stream)
 		stream.flush()
@@ -178,7 +187,7 @@ def execute_ui_test_job(run_name: str) -> None:
 		log = frappe.new_doc("Testcase Log")
 		log.run_reference = run_name
 		log.test_case = run_doc.test_case
-		log.app = tc.app
+		log.app = app
 		log.full_output = full_output
 		log.passed_count = passed
 		log.failed_count = failed
@@ -358,15 +367,14 @@ def _ensure_cypress_test_user(stream: "RealtimeLineStream") -> str:
 	return password
 
 
-def _run_cypress(tc, stream: "RealtimeLineStream") -> tuple[str, int]:
-	"""Spawn `bench run-ui-tests` for one spec and stream its stdout into *stream*.
+def _run_cypress(app: str, specs: list[str], stream: "RealtimeLineStream") -> tuple[str, int]:
+	"""Spawn `bench run-ui-tests` for one or more specs and stream stdout into *stream*.
 
-	Returns (full_output, returncode). The spec path stored on the Testcase
-	(apps/<app>/…) is passed to ``--spec`` so Cypress runs only that file.
+	Returns (full_output, returncode). All *specs* (paths relative to the app
+	source root) run in ONE Cypress invocation via a comma-separated ``--spec`` —
+	the UI equivalent of the Python tier's single-job batch.
 	"""
 	site = frappe.local.site
-	app = tc.app
-	spec = tc.test_file_path
 
 	# Provision the login credential ourselves (no plaintext password in config).
 	test_password = _ensure_cypress_test_user(stream)
@@ -380,8 +388,11 @@ def _run_cypress(tc, stream: "RealtimeLineStream") -> tuple[str, int]:
 		"--headless",
 		"--browser",
 		"chrome",
+		# Cypress accepts a comma-separated spec list, so one invocation runs the
+		# whole selection in a single browser session (one shared setup), exactly
+		# like run_test_batch runs many Python tests in one job.
 		"--spec",
-		spec,
+		",".join(specs),
 		# Extra args after --spec are forwarded to the cypress CLI (see
 		# run_ui_tests). The runner streams output live and saves it to the run,
 		# so the .mp4 recording is redundant — disable it to save time and disk.

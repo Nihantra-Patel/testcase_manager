@@ -427,6 +427,53 @@ def run_ui_test(test_case: str) -> dict:
 
 
 @frappe.whitelist()
+def run_ui_batch(test_cases: str | list) -> dict:
+	"""Run several selected UI specs as ONE run (a single Cypress invocation).
+
+	Mirrors ``run_test_batch`` for the Python tier: one ``Testcase Run`` anchors
+	the whole selection and a single background job runs all specs together (one
+	browser session via a comma-separated ``--spec``), instead of N queued jobs.
+	"""
+	_guard()
+	import json
+
+	if isinstance(test_cases, str):
+		test_cases = json.loads(test_cases)
+	if not test_cases:
+		frappe.throw(frappe._("No UI specs provided"))
+
+	anchor = frappe.db.get_value("Testcase", test_cases[0], ["app", "test_file", "test_kind"], as_dict=True)
+	if not anchor or anchor.test_kind != "UI":
+		frappe.throw(frappe._("Selected test cases are not UI specs."))
+
+	run = frappe.new_doc("Testcase Run")
+	run.test_case = test_cases[0]
+	run.app = anchor.app
+	run.test_method = f"UI: {len(test_cases)} specs (batch)"
+	run.reference_type = "UI"
+	run.run_scope = "UI Spec"
+	run.total_tests = len(test_cases)
+	run.site = frappe.local.site
+	run.triggered_by = frappe.session.user
+	run.status = "Pending"
+	run.realtime = 1
+	run.insert(ignore_permissions=True)
+	# Commit the run row before enqueuing so the worker can read it immediately.
+	frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+
+	frappe.enqueue(
+		"testcase_manager.testcase_manager.ui_executor.execute_ui_test_job",
+		queue="long",
+		timeout=3600,
+		job_id=f"tc_batch_{run.name}",
+		on_failure="testcase_manager.testcase_manager.executor.mark_run_failed_on_job_failure",
+		run_name=run.name,
+		test_cases=test_cases,
+	)
+	return {"run_name": run.name, "task_id": run.name, "background": True}
+
+
+@frappe.whitelist()
 def sync_ui_specs(app: str | None = None) -> dict:
 	"""Discover Cypress UI specs (``test_kind = UI``), scoped to *app* if given."""
 	_guard()

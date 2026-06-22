@@ -310,33 +310,27 @@ function createRunner() {
     }
   }
 
-  // Queue several Cypress specs. Each spec is its own background job (one browser
-  // per spec — they can't share a batch), so we enqueue them all; the backend
-  // run-lock serializes execution and the console auto-follows the active run.
+  // Run several Cypress specs as ONE run — a single Cypress invocation over all
+  // selected specs (one browser session), mirroring the Python tier's batch.
   async function runUiSpecs(specs) {
     if (!specs || !specs.length) return
     if (specs.length === 1) {
       const s = specs[0]
       return runUiSpec(s.name, s.test_file || s.test_method, s.ui_test_count || 0)
     }
-    startSession(`${specs.length} UI specs (queued)`, 0)
+    // Total tests = sum of each spec's it() count, when known.
+    const total = specs.reduce((n, s) => n + (s.ui_test_count || 0), 0)
+    startSession(`${specs.length} UI specs (batch)`, total)
     status.value = 'Running'
-    appendLine(`▶ Queued ${specs.length} UI specs — they run one at a time.`)
-    appendLine('The console follows whichever spec is executing.')
+    appendLine(`▶ Running ${specs.length} UI specs together in one browser session…`)
+    appendLine('Launching a headless browser — this can take a few minutes…')
     appendLine('')
-    let firstRun = null
-    for (const s of specs) {
-      try {
-        const res = await api.runUiTest(s.name)
-        if (!firstRun) firstRun = res.run_name
-      } catch (e) {
-        appendLine(`✖ Failed to queue ${s.test_file || s.name}.`)
-      }
-    }
-    if (firstRun) {
-      lastRun.value = firstRun
-      subscribe(firstRun)
-    } else {
+    try {
+      const res = await api.runUiBatch(specs.map((s) => s.name))
+      lastRun.value = res.run_name
+      subscribe(res.run_name)
+    } catch (e) {
+      appendLine('✖ Failed to start the UI batch (API error).')
       endSession()
     }
   }

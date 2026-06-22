@@ -30,6 +30,8 @@ export const api = {
   runAppTests: (app) => call(`${M}.run_app_tests`, { app }),
   // UI (Cypress) tier: run one spec in a browser, sync discovered specs.
   runUiTest: (test_case) => call(`${M}.run_ui_test`, { test_case }),
+  runUiBatch: (test_cases) =>
+    call(`${M}.run_ui_batch`, { test_cases: JSON.stringify(test_cases) }),
   syncUiSpecs: (app) => call(`${M}.sync_ui_specs`, app ? { app } : {}),
   // How many failed/errored tests in a run can be re-run (to enable the button).
   getFailedTests: (run_name) => call(`${M}.get_failed_tests`, { run_name }),
