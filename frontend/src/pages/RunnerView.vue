@@ -5,18 +5,23 @@
     <div class="border-b border-outline-gray-2 bg-surface-white px-8 py-3">
       <!-- Row 1: tier toggle + filters -->
       <div class="flex flex-wrap items-end gap-3">
-        <!-- Tier toggle: Python (fast, in-process) vs UI (Cypress, browser). -->
+        <!-- Tier toggle: Python (fast, in-process) vs UI (Cypress, browser).
+             Segmented control styled like a frappe-ui subtle-gray control so it
+             reads well in both light and dark themes (matches the row's Selects
+             and the row Play buttons). -->
         <div>
           <div class="mb-1 text-xs font-semibold text-ink-gray-5">Kind</div>
-          <div class="flex h-[28px] overflow-hidden rounded-md border border-outline-gray-2 text-xs">
+          <div
+            class="flex h-[28px] items-center gap-0.5 rounded-md bg-surface-gray-2 p-0.5 text-xs"
+          >
             <button
               v-for="k in ['Python', 'UI']"
               :key="k"
-              class="px-3.5 font-medium transition-colors"
+              class="h-full rounded px-3 font-medium transition-colors"
               :class="
                 kind === k
-                  ? 'bg-surface-gray-7 text-ink-white'
-                  : 'bg-surface-white text-ink-gray-6 hover:bg-surface-gray-2'
+                  ? 'bg-surface-white text-ink-gray-9 shadow-sm'
+                  : 'text-ink-gray-6 hover:text-ink-gray-8'
               "
               @click="setKind(k)"
             >
@@ -589,18 +594,27 @@ const canStartNewRun = computed(() => {
   return !runner.isRunning.value && !runner.inlineRunning.value
 })
 
-// Switch tier: UI and Python have separate app lists / filters, so reload them.
-function setKind(k) {
+// Switch tier: UI and Python have separate app lists / filters, so reset the
+// app/type/ref (a Python app may have no UI specs and vice-versa) and reload.
+async function setKind(k) {
   if (kind.value === k) return
   kind.value = k
   selected.value = []
   clearImpact()
+  // Guard so the app/type watchers below don't double-query while we reset.
+  restoring = true
+  filters.app = ''
   filters.type = ''
   filters.ref = ''
-  loadApps()
-  loadRefOptions()
-  doQuery()
+  filters.search = ''
+  refValues.value = []
   saveFilters()
+  await loadApps()
+  await doQuery()
+  // Release after Vue flushes the watchers triggered by the resets above.
+  nextTick(() => {
+    restoring = false
+  })
 }
 
 // Run a single row, routed by tier: a UI spec runs in a headless browser, a
