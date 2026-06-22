@@ -32,14 +32,22 @@ from testcase_manager.testcase_manager.executor import (
 	live_output_key,
 )
 
-# Cypress' run summary line, e.g. "✔  All specs passed!" / "✖  1 of 2 failed".
-# The mochawesome/spec table footer reports per-spec Passing/Failing/Pending counts:
-#   "✔  control_data.js   00:42   12   12   -   -   -"
-# We parse the canonical "Tests:/Passing:/Failing:" summary Cypress prints at the end.
+# Cypress prints a per-spec "(Results)" block with labelled lines
+# (Tests:/Passing:/Failing:/Pending:) for normal runs; we parse those first.
 _PASSING_RE = re.compile(r"\bPassing:\s+(\d+)", re.IGNORECASE)
 _FAILING_RE = re.compile(r"\bFailing:\s+(\d+)", re.IGNORECASE)
 _PENDING_RE = re.compile(r"\bPending:\s+(\d+)", re.IGNORECASE)
 _TESTS_RE = re.compile(r"\bTests:\s+(\d+)", re.IGNORECASE)
+
+# When a `before all` hook fails, the labelled block is missing but the final
+# spec-table grid row still carries the numbers, e.g.:
+#   "✖  assignment_rule.js   00:01   1   -   1   -   -"
+# i.e. <mark> <spec> <duration> <tests> <passing> <failing> <pending> <skipped>,
+# with "-" meaning zero. Parse that as a fallback so counts stay accurate.
+_GRID_ROW_RE = re.compile(
+	r"[✔✖]\s+\S+\.js\s+\d+:\d+\s+"
+	r"(?P<tests>\d+|-)\s+(?P<passing>\d+|-)\s+(?P<failing>\d+|-)\s+(?P<pending>\d+|-)",
+)
 
 
 def _bench_path() -> str:
@@ -60,16 +68,33 @@ def _parse_cypress_counts(output: str) -> tuple[int, int, int, int]:
 	which the caller maps to an Error status.
 	"""
 
+	out = output or ""
+
 	# Sum across all spec blocks: Cypress prints one summary per spec plus a grand
 	# total at the very end. The grand total is the LAST occurrence of each key.
 	def _last(rx) -> int:
-		vals = rx.findall(output or "")
+		vals = rx.findall(out)
 		return int(vals[-1]) if vals else 0
 
 	total = _last(_TESTS_RE)
 	passed = _last(_PASSING_RE)
 	failed = _last(_FAILING_RE)
 	pending = _last(_PENDING_RE)
+
+	# Fallback: no labelled "(Results)" block (e.g. a hook failed). Sum the
+	# spec-table grid rows, treating "-" as 0.
+	if not total:
+
+		def _n(v: str) -> int:
+			return 0 if v == "-" else int(v)
+
+		rows = list(_GRID_ROW_RE.finditer(out))
+		if rows:
+			total = sum(_n(m.group("tests")) for m in rows)
+			passed = sum(_n(m.group("passing")) for m in rows)
+			failed = sum(_n(m.group("failing")) for m in rows)
+			pending = sum(_n(m.group("pending")) for m in rows)
+
 	return total, passed, failed, pending
 
 
@@ -112,15 +137,28 @@ def execute_ui_test_job(run_name: str) -> None:
 		duration = round(time.monotonic() - start_ts, 3)
 		total, passed, failed, pending = _parse_cypress_counts(output)
 
-		if failed:
-			status = "Failed"
-		elif total or returncode == 0:
-			status = "Passed"
+		# The Cypress process exit code is authoritative: it is non-zero whenever any
+		# test (or hook) fails, and zero only when everything passed. The parsed
+		# counts feed the summary but must NOT decide pass/fail on their own — a
+		# `before all` hook failure prints a spec-table grid without the labelled
+		# "Failing: N" line, so count-parsing alone wrongly read that as a pass.
+		if returncode != 0:
+			# A genuine test failure prints a results table (total > 0); a crash
+			# before any test runs (bad binary, server down) produces none.
+			status = "Failed" if total else "Error"
+			# If counts didn't surface a failure but the run failed, reflect that.
+			if status == "Failed" and not failed:
+				failed = max(total - passed - pending, 1)
 		else:
-			# No tests parsed and a non-zero exit → the run never produced results.
-			status = "Error"
+			status = "Passed"
 
-		result_summary = f"Passed: {passed}, Failed: {failed}, Pending: {pending}"
+		# Use the same "Passed/Failed/Errors" shape as the Python tier so the UI's
+		# parseCounts() and the console footer tally read it uniformly. Cypress has
+		# no separate "errors" bucket (a failure is a failure), so errors=0; pending
+		# is appended for detail only.
+		result_summary = f"Passed: {passed}, Failed: {failed}, Errors: 0"
+		if pending:
+			result_summary += f", Pending: {pending}"
 		full_output = stream.getvalue()
 
 		frappe.db.set_value(
@@ -212,18 +250,34 @@ def _hint_common_failures(output: str, stream: "RealtimeLineStream") -> None:
 	the result.
 	"""
 	out = output or ""
-	if "Login with username and password is not allowed" in out or (
-		"/api/method/login" in out and "401" in out
-	):
+	login_401 = "/api/method/login" in out and "401" in out
+	if "Login with username and password is not allowed" in out:
+		# Password login is explicitly disabled on the site.
 		stream.write(
 			"\n"
 			"────────────────────────────────────────────────────────\n"
-			"NOTE: Cypress could not log in (401 on /api/method/login).\n"
-			"  This site has password login disabled, but every Frappe\n"
-			"  Cypress spec starts with cy.login() (username + password).\n"
-			"  Enable it once on the test site:\n"
+			"NOTE: Cypress could not log in (password login is disabled).\n"
+			"  Every Frappe Cypress spec starts with cy.login(), which posts\n"
+			"  a username + password. Enable it once on the test site:\n"
 			"    System Settings -> uncheck 'Disable Username/Password Login',\n"
 			"    or: bench --site <site> set-config disable_user_pass_login 0\n"
+			"────────────────────────────────────────────────────────\n"
+		)
+		stream.flush()
+	elif login_401:
+		# Login is allowed but the credentials were rejected — almost always a
+		# missing `admin_password` in the site config (run-ui-tests passes it to
+		# cy.login() as CYPRESS_adminPassword), or a missing test user/fixture.
+		stream.write(
+			"\n"
+			"────────────────────────────────────────────────────────\n"
+			"NOTE: Cypress login was rejected (401 on /api/method/login).\n"
+			"  Login is allowed, so the credentials are wrong. Most often the\n"
+			"  site has no `admin_password` in its config — run-ui-tests passes\n"
+			"  that to cy.login(). Check / set it:\n"
+			"    bench --site <site> set-admin-password <password>\n"
+			"  (the password must match what cy.login() uses — the Administrator\n"
+			"  password). Also ensure the spec's test user/fixtures exist.\n"
 			"────────────────────────────────────────────────────────\n"
 		)
 		stream.flush()

@@ -294,8 +294,8 @@ function createRunner() {
   // Run one Cypress UI spec. Always background (a browser run takes minutes), so
   // it streams like a realtime Python run. UI counts have no separate "errors"
   // bucket (a Cypress failure is a failure), so the footer shows passed/failed.
-  async function runUiSpec(testCaseName, label) {
-    startSession(label, 0)
+  async function runUiSpec(testCaseName, label, total = 0) {
+    startSession(label, total)
     status.value = 'Running'
     appendLine(`▶ Running UI spec: ${label}`)
     appendLine('Launching a headless browser — this can take a few minutes…')
