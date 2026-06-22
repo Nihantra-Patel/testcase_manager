@@ -309,8 +309,13 @@ bench --site your-site.localhost run-tests --app testcase_manager
 
 GitHub Actions run on every push to `develop` and on pull requests:
 
-- **CI** — pre-commit checks, builds the Vue frontend, then runs the server-side
-  test suite against a fresh site.
+- **CI** — pre-commit checks, builds the Vue frontend, runs the server-side test
+  suite against a fresh site, and (in a separate **UI** job) runs the app's
+  Cypress specs headlessly via `bench run-ui-tests … --config video=false` — the
+  same path and flags the in-app runner uses, so CI and the app behave
+  identically. The UI job auto-detects whether the app ships any specs and is a
+  green no-op when it doesn't; Cypress installs itself on first use (cached
+  between runs), so no manual Cypress setup is needed on any OS.
 - **Linters** — pre-commit, Semgrep (Frappe rules), and a vulnerable-dependency
   audit.
 

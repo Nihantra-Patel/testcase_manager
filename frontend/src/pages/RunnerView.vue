@@ -1,66 +1,69 @@
 <template>
   <div class="flex h-full flex-col overflow-hidden">
-    <!-- Filter bar -->
-    <div
-      class="flex flex-wrap items-end gap-3 border-b border-outline-gray-2 bg-surface-white px-8 py-3"
-    >
-      <!-- Tier toggle: Python (fast, in-process) vs UI (Cypress, browser). -->
-      <div>
-        <div class="mb-1 text-xs font-semibold text-ink-gray-5">Kind</div>
-        <div class="flex h-[28px] overflow-hidden rounded border border-outline-gray-2 text-xs">
-          <button
-            v-for="k in ['Python', 'UI']"
-            :key="k"
-            class="px-3 font-medium transition-colors"
-            :class="
-              kind === k
-                ? 'bg-surface-gray-7 text-ink-white'
-                : 'bg-surface-white text-ink-gray-6 hover:bg-surface-gray-2'
-            "
-            @click="setKind(k)"
+    <!-- Filter bar: two rows — filters on top, actions below — so the bar stays
+         tidy as the Kind toggle and per-tier controls come and go. -->
+    <div class="border-b border-outline-gray-2 bg-surface-white px-8 py-3">
+      <!-- Row 1: tier toggle + filters -->
+      <div class="flex flex-wrap items-end gap-3">
+        <!-- Tier toggle: Python (fast, in-process) vs UI (Cypress, browser). -->
+        <div>
+          <div class="mb-1 text-xs font-semibold text-ink-gray-5">Kind</div>
+          <div class="flex h-[28px] overflow-hidden rounded-md border border-outline-gray-2 text-xs">
+            <button
+              v-for="k in ['Python', 'UI']"
+              :key="k"
+              class="px-3.5 font-medium transition-colors"
+              :class="
+                kind === k
+                  ? 'bg-surface-gray-7 text-ink-white'
+                  : 'bg-surface-white text-ink-gray-6 hover:bg-surface-gray-2'
+              "
+              @click="setKind(k)"
+            >
+              {{ k }}
+            </button>
+          </div>
+        </div>
+        <div class="w-[160px]">
+          <div class="mb-1 text-xs font-semibold text-ink-gray-5">App</div>
+          <Select v-model="filters.app" :options="appOptions" class="w-full" />
+        </div>
+        <div v-if="kind === 'Python'" class="w-[140px]">
+          <div class="mb-1 text-xs font-semibold text-ink-gray-5">Type</div>
+          <Select v-model="filters.type" :options="typeOptions" class="w-full" />
+        </div>
+        <div v-if="kind === 'Python'" class="w-[230px]">
+          <div class="mb-1 truncate text-xs font-semibold text-ink-gray-5">
+            {{ refLabel }}
+          </div>
+          <Select v-model="filters.ref" :options="refOptions" class="w-full" />
+        </div>
+        <div class="w-[210px]">
+          <div class="mb-1 text-xs font-semibold text-ink-gray-5">
+            {{ kind === 'UI' ? 'Search Spec' : 'Search Method' }}
+          </div>
+          <FormControl
+            v-model="filters.search"
+            type="text"
+            :placeholder="kind === 'UI' ? 'spec_file_name…' : 'test_method_name…'"
+            class="w-full"
+          />
+        </div>
+
+        <div v-if="kind === 'Python'">
+          <div class="mb-1 text-xs font-semibold text-ink-gray-5">Mode</div>
+          <label
+            class="flex h-[28px] cursor-pointer select-none items-center gap-1.5 text-xs text-ink-gray-6"
+            title="On: background job with live streaming. Off: inline run, faster, output shown when finished."
           >
-            {{ k }}
-          </button>
+            <input type="checkbox" v-model="realtime" class="tc-checkbox" />
+            Realtime run
+          </label>
         </div>
-      </div>
-      <div class="w-[150px]">
-        <div class="mb-1 text-xs font-semibold text-ink-gray-5">App</div>
-        <Select v-model="filters.app" :options="appOptions" class="w-full" />
-      </div>
-      <div v-if="kind === 'Python'" class="w-[130px]">
-        <div class="mb-1 text-xs font-semibold text-ink-gray-5">Type</div>
-        <Select v-model="filters.type" :options="typeOptions" class="w-full" />
-      </div>
-      <div v-if="kind === 'Python'" class="w-[220px]">
-        <div class="mb-1 truncate text-xs font-semibold text-ink-gray-5">
-          {{ refLabel }}
-        </div>
-        <Select v-model="filters.ref" :options="refOptions" class="w-full" />
-      </div>
-      <div class="w-[200px]">
-        <div class="mb-1 text-xs font-semibold text-ink-gray-5">
-          Search Method
-        </div>
-        <FormControl
-          v-model="filters.search"
-          type="text"
-          placeholder="test_method_name…"
-          class="w-full"
-        />
       </div>
 
-      <div v-if="kind === 'Python'">
-        <div class="mb-1 text-xs font-semibold text-ink-gray-5">Mode</div>
-        <label
-          class="flex h-[28px] cursor-pointer select-none items-center gap-1.5 text-xs text-ink-gray-6"
-          title="On: background job with live streaming. Off: inline run, faster, output shown when finished."
-        >
-          <input type="checkbox" v-model="realtime" class="tc-checkbox" />
-          Realtime run
-        </label>
-      </div>
-
-      <div class="ml-auto flex items-end gap-2">
+      <!-- Row 2: actions, right-aligned, on their own line. -->
+      <div class="mt-3 flex items-center justify-end gap-2">
         <Button
           v-if="filters.app && kind === 'Python'"
           variant="subtle"

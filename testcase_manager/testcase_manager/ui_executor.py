@@ -228,6 +228,29 @@ def _hint_common_failures(output: str, stream: "RealtimeLineStream") -> None:
 		)
 		stream.flush()
 
+	# A corrupted / partially-downloaded Cypress binary, or one built for the
+	# wrong CPU arch (e.g. an Intel build cached on an Apple-Silicon Mac), crashes
+	# before any tests run. The fix is the same on every OS: clear the cache and
+	# let `bench run-ui-tests` re-download the right binary automatically.
+	binary_broken = (
+		("Cannot find module" in out and "Cypress.app" in out)
+		or "Failed downloading the Cypress binary" in out
+		or ("Cypress verification" in out and "failed" in out.lower())
+	)
+	if binary_broken:
+		stream.write(
+			"\n"
+			"────────────────────────────────────────────────────────\n"
+			"NOTE: The Cypress binary looks broken or missing for this machine.\n"
+			"  This is environment-only (often a stale cache, or an Intel build\n"
+			"  cached on an Apple-Silicon Mac). Clear it and re-run; bench will\n"
+			"  re-download the correct binary automatically:\n"
+			"    rm -rf ~/.cache/Cypress ~/Library/Caches/Cypress\n"
+			"    (then run the spec again)\n"
+			"────────────────────────────────────────────────────────\n"
+		)
+		stream.flush()
+
 
 def _run_cypress(tc, stream: "RealtimeLineStream") -> tuple[str, int]:
 	"""Spawn `bench run-ui-tests` for one spec and stream its stdout into *stream*.
