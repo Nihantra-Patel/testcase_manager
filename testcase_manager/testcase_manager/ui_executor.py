@@ -107,6 +107,7 @@ def execute_ui_test_job(run_name: str) -> None:
 		with _run_lock(stream):
 			output, returncode = _run_cypress(tc, stream)
 
+		_hint_common_failures(output, stream)
 		stream.flush()
 		duration = round(time.monotonic() - start_ts, 3)
 		total, passed, failed, pending = _parse_cypress_counts(output)
@@ -202,6 +203,32 @@ def execute_ui_test_job(run_name: str) -> None:
 			pass
 
 
+def _hint_common_failures(output: str, stream: "RealtimeLineStream") -> None:
+	"""Append a friendly explanation for well-known environment failures.
+
+	The raw Cypress output is preserved verbatim (a PR author sees exactly the same
+	failure); this only adds a trailing hint so the cause is obvious in the console.
+	Counts/status are parsed from *output* before this runs, so hints never change
+	the result.
+	"""
+	out = output or ""
+	if "Login with username and password is not allowed" in out or (
+		"/api/method/login" in out and "401" in out
+	):
+		stream.write(
+			"\n"
+			"────────────────────────────────────────────────────────\n"
+			"NOTE: Cypress could not log in (401 on /api/method/login).\n"
+			"  This site has password login disabled, but every Frappe\n"
+			"  Cypress spec starts with cy.login() (username + password).\n"
+			"  Enable it once on the test site:\n"
+			"    System Settings -> uncheck 'Disable Username/Password Login',\n"
+			"    or: bench --site <site> set-config disable_user_pass_login 0\n"
+			"────────────────────────────────────────────────────────\n"
+		)
+		stream.flush()
+
+
 def _run_cypress(tc, stream: "RealtimeLineStream") -> tuple[str, int]:
 	"""Spawn `bench run-ui-tests` for one spec and stream its stdout into *stream*.
 
@@ -223,6 +250,11 @@ def _run_cypress(tc, stream: "RealtimeLineStream") -> tuple[str, int]:
 		"chrome",
 		"--spec",
 		spec,
+		# Extra args after --spec are forwarded to the cypress CLI (see
+		# run_ui_tests). The runner streams output live and saves it to the run,
+		# so the .mp4 recording is redundant — disable it to save time and disk.
+		"--config",
+		"video=false",
 	]
 
 	stream.write(f"\n$ {' '.join(cmd)}\n\n")

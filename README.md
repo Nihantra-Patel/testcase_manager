@@ -220,6 +220,15 @@ saved to History with its passed/failed counts, exactly like a Python run. UI
 runs are always background (a browser run takes minutes) and serialize with
 Python runs via the same run-lock.
 
+> **First-run setup.** The very first UI run installs Cypress and its plugins
+> (~50s, one-time) and verifies the Cypress binary; subsequent runs skip that.
+> Cypress logs in with username + password (`cy.login()`), so the test site must
+> allow password login — if it's disabled you'll get `401 on /api/method/login`
+> and the console prints a hint. Enable it with:
+> `bench --site <site> set-config disable_user_pass_login 0` (or uncheck
+> *Disable Username/Password Login* in System Settings). Video recording is
+> turned off for runner-launched runs since the console already captures output.
+
 > **Make UI testing faster — a tiered strategy.** A real browser run is slow by
 > nature, so the fastest UI test is the one that doesn't open a browser. Think in
 > three tiers, fastest first:
