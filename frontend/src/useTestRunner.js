@@ -71,9 +71,15 @@ function createRunner() {
   // The "▸ running …" line marks a *start*, so it's deliberately excluded.
   const DONE_LINE = /^\s*[✔✖=xu]\s/
   const PASS_LINE = /^\s*[✔=]\s/ // ✔ passed, = skipped (counted as not-failed)
+  // Cypress' run-finished grid and summary lines also start with ✔/✖ but are NOT
+  // per-test results (e.g. "✔ control_attach.js  00:42  7  7", "✔ All specs
+  // passed!"). Skip them so the live UI tally doesn't count specs/summaries as
+  // tests; the final count is corrected authoritatively in renderSummary anyway.
+  const CYPRESS_SUMMARY_LINE = /\.js\s+\d+:\d+|All specs passed|\d+ of \d+ failed/
 
   function tally(text) {
     if (!DONE_LINE.test(text)) return
+    if (CYPRESS_SUMMARY_LINE.test(text)) return
     // Never let the live count exceed the known total — error tests can emit extra
     // ✖/traceback lines that would otherwise push `done` past `total` (the final
     // count is corrected authoritatively in renderSummary).
@@ -209,6 +215,13 @@ function createRunner() {
     // show e.g. 2655 / 2615. The completion event is authoritative: the number of
     // tests that finished is exactly passed + failed + errors.
     progress.done = session.passed + session.failed + session.errors
+    // The planned total can be a pre-run estimate that's wrong once we know what
+    // actually ran (e.g. UI specs whose discovered it()-count differs from the
+    // tests Cypress executed). Never show "done / total" with done > total — once
+    // finished, the real total is at least what completed.
+    if (!progress.total || progress.done > progress.total) {
+      progress.total = progress.done
+    }
     // No console summary line / banner — the footer shows the final tally.
     status.value = ok ? 'Passed' : 'Failed'
   }

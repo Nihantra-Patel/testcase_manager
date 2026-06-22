@@ -61,41 +61,40 @@ def _bench_path() -> str:
 
 
 def _parse_cypress_counts(output: str) -> tuple[int, int, int, int]:
-	"""Return (total, passed, failed, pending) parsed from Cypress' run summary.
+	"""Return the GRAND-TOTAL (total, passed, failed, pending) across all specs.
 
-	Cypress prints a final "(Run Finished)" table with Tests/Passing/Failing/Pending.
-	When a run dies before that table (compile error, server down) all counts are 0,
-	which the caller maps to an Error status.
+	Cypress prints a per-spec labelled "(Results)" block (Tests:/Passing:/…) — one
+	PER SPEC, with NO labelled grand total. The single source of the grand total is
+	the final "(Run Finished)" spec-table grid, which lists one row per spec:
+
+	    ✔  assignment_rule.js   00:28   1   1   -   -   -
+	    ✔  control_attach.js    00:42   7   7   -   -   -
+
+	So we sum those per-spec grid rows. Summing the grid (not reading the last
+	labelled block) is correct for both single- and multi-spec runs. When the grid
+	is absent (a crash before any spec ran), we fall back to the labelled blocks.
 	"""
 
 	out = output or ""
 
-	# Sum across all spec blocks: Cypress prints one summary per spec plus a grand
-	# total at the very end. The grand total is the LAST occurrence of each key.
-	def _last(rx) -> int:
-		vals = rx.findall(out)
-		return int(vals[-1]) if vals else 0
+	def _n(v: str) -> int:
+		return 0 if v == "-" else int(v)
 
-	total = _last(_TESTS_RE)
-	passed = _last(_PASSING_RE)
-	failed = _last(_FAILING_RE)
-	pending = _last(_PENDING_RE)
+	# Primary: sum the per-spec rows of the final spec-table grid (the grand total).
+	rows = list(_GRID_ROW_RE.finditer(out))
+	if rows:
+		total = sum(_n(m.group("tests")) for m in rows)
+		passed = sum(_n(m.group("passing")) for m in rows)
+		failed = sum(_n(m.group("failing")) for m in rows)
+		pending = sum(_n(m.group("pending")) for m in rows)
+		return total, passed, failed, pending
 
-	# Fallback: no labelled "(Results)" block (e.g. a hook failed). Sum the
-	# spec-table grid rows, treating "-" as 0.
-	if not total:
+	# Fallback: no grid (e.g. crash before the run-finished table). Sum the labelled
+	# per-spec (Results) blocks instead.
+	def _sum(rx) -> int:
+		return sum(int(v) for v in rx.findall(out))
 
-		def _n(v: str) -> int:
-			return 0 if v == "-" else int(v)
-
-		rows = list(_GRID_ROW_RE.finditer(out))
-		if rows:
-			total = sum(_n(m.group("tests")) for m in rows)
-			passed = sum(_n(m.group("passing")) for m in rows)
-			failed = sum(_n(m.group("failing")) for m in rows)
-			pending = sum(_n(m.group("pending")) for m in rows)
-
-	return total, passed, failed, pending
+	return _sum(_TESTS_RE), _sum(_PASSING_RE), _sum(_FAILING_RE), _sum(_PENDING_RE)
 
 
 def execute_ui_test_job(run_name: str, test_cases: list[str] | None = None) -> None:
