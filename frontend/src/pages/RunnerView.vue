@@ -4,15 +4,34 @@
     <div
       class="flex flex-wrap items-end gap-3 border-b border-outline-gray-2 bg-surface-white px-8 py-3"
     >
+      <!-- Tier toggle: Python (fast, in-process) vs UI (Cypress, browser). -->
+      <div>
+        <div class="mb-1 text-xs font-semibold text-ink-gray-5">Kind</div>
+        <div class="flex h-[28px] overflow-hidden rounded border border-outline-gray-2 text-xs">
+          <button
+            v-for="k in ['Python', 'UI']"
+            :key="k"
+            class="px-3 font-medium transition-colors"
+            :class="
+              kind === k
+                ? 'bg-surface-gray-7 text-ink-white'
+                : 'bg-surface-white text-ink-gray-6 hover:bg-surface-gray-2'
+            "
+            @click="setKind(k)"
+          >
+            {{ k }}
+          </button>
+        </div>
+      </div>
       <div class="w-[150px]">
         <div class="mb-1 text-xs font-semibold text-ink-gray-5">App</div>
         <Select v-model="filters.app" :options="appOptions" class="w-full" />
       </div>
-      <div class="w-[130px]">
+      <div v-if="kind === 'Python'" class="w-[130px]">
         <div class="mb-1 text-xs font-semibold text-ink-gray-5">Type</div>
         <Select v-model="filters.type" :options="typeOptions" class="w-full" />
       </div>
-      <div class="w-[220px]">
+      <div v-if="kind === 'Python'" class="w-[220px]">
         <div class="mb-1 truncate text-xs font-semibold text-ink-gray-5">
           {{ refLabel }}
         </div>
@@ -30,7 +49,7 @@
         />
       </div>
 
-      <div>
+      <div v-if="kind === 'Python'">
         <div class="mb-1 text-xs font-semibold text-ink-gray-5">Mode</div>
         <label
           class="flex h-[28px] cursor-pointer select-none items-center gap-1.5 text-xs text-ink-gray-6"
@@ -43,7 +62,7 @@
 
       <div class="ml-auto flex items-end gap-2">
         <Button
-          v-if="filters.app"
+          v-if="filters.app && kind === 'Python'"
           variant="subtle"
           :loading="impact.loading"
           @click="analyzeImpact"
@@ -51,7 +70,7 @@
           <template #prefix><FeatherIcon name="git-pull-request" class="h-3.5 w-3.5" /></template>
           Analyze Impact
         </Button>
-        <Button v-if="filters.app" variant="subtle" @click="confirmRunApp">
+        <Button v-if="filters.app && kind === 'Python'" variant="subtle" @click="confirmRunApp">
           <template #prefix><FeatherIcon name="play" class="h-3.5 w-3.5" /></template>
           Run Entire App
         </Button>
@@ -60,6 +79,20 @@
           <template #prefix><FeatherIcon name="refresh-cw" class="h-3.5 w-3.5" /></template>
         </Button>
       </div>
+    </div>
+
+    <!-- UI tier note: Cypress specs are slow, browser-based, opt-in. -->
+    <div
+      v-if="kind === 'UI'"
+      class="flex items-start gap-2 border-b border-outline-gray-2 bg-surface-gray-1 px-8 py-2 text-[11px] text-ink-gray-6"
+    >
+      <FeatherIcon name="info" class="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-ink-gray-5" />
+      <span>
+        UI tests open a real browser (Cypress) and take minutes per spec — each run
+        executes one whole spec file in the background. For a fast feedback loop,
+        prefer a Python form/controller test (the <b>Python</b> tab) whenever the
+        behaviour can be checked server-side.
+      </span>
     </div>
 
     <!-- Impact analysis result banner -->
@@ -164,7 +197,7 @@
             <span class="text-xs font-bold text-ink-gray-5">Tests</span>
             <span class="text-xs text-ink-gray-5">{{ countLabel }}</span>
           </div>
-          <label class="flex cursor-pointer items-center gap-1.5 text-xs">
+          <label v-if="kind === 'Python'" class="flex cursor-pointer items-center gap-1.5 text-xs">
             <input type="checkbox" :checked="allSelected" @change="toggleAll" class="tc-checkbox" />
             Select all
           </label>
@@ -187,6 +220,7 @@
                 class="flex items-center gap-2 border-b border-outline-gray-1 px-3 py-1.5 hover:bg-surface-gray-2"
               >
                 <input
+                  v-if="kind === 'Python'"
                   type="checkbox"
                   :value="tc.name"
                   v-model="selected"
@@ -196,6 +230,13 @@
                   <div class="flex items-center gap-1.5">
                     <span class="truncate text-sm font-semibold">{{ tc.test_method }}</span>
                     <span
+                      v-if="tc.test_kind === 'UI' && tc.ui_test_count"
+                      class="flex-shrink-0 rounded bg-surface-gray-3 px-1.5 py-0.5 text-[10px] font-medium text-ink-gray-6"
+                      :title="tc.ui_test_names"
+                    >
+                      {{ tc.ui_test_count }} it()
+                    </span>
+                    <span
                       v-if="impact.reasons[tc.name]"
                       class="flex-shrink-0 rounded bg-surface-amber-2 px-1.5 py-0.5 text-[10px] font-medium text-ink-amber-3"
                       :title="impact.reasons[tc.name].join('\n')"
@@ -203,7 +244,9 @@
                       affected
                     </span>
                   </div>
-                  <div class="truncate text-xs text-ink-gray-4">{{ tc.python_path }}</div>
+                  <div class="truncate text-xs text-ink-gray-4">
+                    {{ tc.test_kind === 'UI' ? tc.test_file_path || tc.test_file : tc.python_path }}
+                  </div>
                 </div>
                 <!-- Per-row run. Hidden once 2+ tests are selected, where "Run
                      Selected" takes over (a single tick still runs from the row).
@@ -220,7 +263,7 @@
                       ? 'Run this test'
                       : 'A run is in progress — Quick run is disabled (switch to Realtime to queue it)'
                   "
-                  @click="runOne(tc.name, tc.test_method)"
+                  @click="runRow(tc)"
                 >
                   <FeatherIcon name="play" class="h-3 w-3" />
                 </Button>
@@ -397,6 +440,8 @@ activePoll = setInterval(refreshActiveRuns, 3000)
 onBeforeUnmount(() => clearInterval(activePoll))
 
 const filters = reactive({ app: '', type: '', ref: '', search: '' })
+// Which tier the runner is showing: 'Python' (fast, in-process) or 'UI' (Cypress).
+const kind = ref('Python')
 // Realtime ON  → background job with live streaming (default).
 // Realtime OFF → inline run, faster, output shown at completion.
 const realtime = ref(true)
@@ -536,9 +581,35 @@ const showProgress = computed(() => !!progressCount.value)
 //   • Quick (inline) → runs in the web process, bypassing that lock, so it would
 //     deadlock against ANY active run. Block it while anything is running.
 const canStartNewRun = computed(() => {
+  if (kind.value === 'UI') return true // UI runs are always background → queue safely
   if (realtime.value) return true // realtime always queues
   return !runner.isRunning.value && !runner.inlineRunning.value
 })
+
+// Switch tier: UI and Python have separate app lists / filters, so reload them.
+function setKind(k) {
+  if (kind.value === k) return
+  kind.value = k
+  selected.value = []
+  clearImpact()
+  filters.type = ''
+  filters.ref = ''
+  loadApps()
+  loadRefOptions()
+  doQuery()
+  saveFilters()
+}
+
+// Run a single row, routed by tier: a UI spec runs in a headless browser, a
+// Python test runs inline/realtime per the Mode toggle.
+function runRow(tc) {
+  if (tc.test_kind === 'UI') return runUiRow(tc)
+  return runOne(tc.name, tc.test_method)
+}
+async function runUiRow(tc) {
+  await runner.runUiSpec(tc.name, tc.test_file || tc.test_method)
+  nudgeOwnRun()
+}
 
 // ── Grouping (app › module) ─────────────────────────────────────────────────
 const groupedRecords = computed(() => {
@@ -591,6 +662,7 @@ async function doQuery() {
     app: filters.app,
     reference_type: filters.type,
     search: filters.search.trim(),
+    test_kind: kind.value,
     page_size: 10000,
   }
   if (filters.ref) {
@@ -612,7 +684,7 @@ async function doQuery() {
 }
 
 async function loadRefOptions() {
-  if (!filters.app && !filters.type) {
+  if (kind.value === 'UI' || (!filters.app && !filters.type)) {
     refValues.value = []
     return
   }
@@ -622,7 +694,10 @@ async function loadRefOptions() {
 // ── Filter persistence ──────────────────────────────────────────────────────
 function saveFilters() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...filters, realtime: realtime.value }))
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ ...filters, realtime: realtime.value, kind: kind.value }),
+    )
   } catch (e) {
     /* ignore */
   }
@@ -631,6 +706,7 @@ function restoreFilters() {
   try {
     const s = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
     if (typeof s.realtime === 'boolean') realtime.value = s.realtime
+    if (s.kind === 'Python' || s.kind === 'UI') kind.value = s.kind
     Object.assign(filters, { app: s.app, type: s.type, ref: s.ref, search: s.search })
   } catch (e) {
     /* ignore */
@@ -645,6 +721,8 @@ function resetFilters() {
   filters.ref = ''
   filters.search = ''
   realtime.value = true
+  kind.value = 'Python'
+  loadApps()
   try {
     localStorage.removeItem(STORAGE_KEY)
   } catch (e) {
@@ -717,14 +795,20 @@ async function doRunApp() {
 
 async function syncTests() {
   syncing.value = true
-  const args = { app: filters.app }
-  if (filters.app) {
-    const kind = filters.type || selectedRefType.value
-    if (kind) args.reference_type = kind
-    if (filters.ref) args.reference = filters.ref
-  }
   try {
-    const m = (await api.syncTestCases(args)) || {}
+    let m
+    if (kind.value === 'UI') {
+      // UI specs are discovered by file glob; only the app scopes the sync.
+      m = (await api.syncUiSpecs(filters.app)) || {}
+    } else {
+      const args = { app: filters.app }
+      if (filters.app) {
+        const refKind = filters.type || selectedRefType.value
+        if (refKind) args.reference_type = refKind
+        if (filters.ref) args.reference = filters.ref
+      }
+      m = (await api.syncTestCases(args)) || {}
+    }
     if (m.status === 'queued') {
       toast({ title: 'Full sync queued in background', icon: 'clock' })
     } else {
@@ -742,7 +826,7 @@ async function syncTests() {
 }
 
 async function loadApps() {
-  apps.value = (await api.getInstalledApps()) || []
+  apps.value = (await api.getInstalledApps(kind.value)) || []
 }
 
 // After a page reload, reconnect to a run that's still in progress so the

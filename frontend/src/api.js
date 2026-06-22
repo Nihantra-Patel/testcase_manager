@@ -7,7 +7,7 @@ const Q = 'testcase_manager.testcase_manager.queries'
 
 export const api = {
   // ── Read-only queries ──────────────────────────────────────────────
-  getInstalledApps: () => call(`${Q}.get_installed_apps_list`),
+  getInstalledApps: (test_kind) => call(`${Q}.get_installed_apps_list`, test_kind ? { test_kind } : {}),
   getAppLogos: () => call(`${Q}.get_app_logos`),
   getReferenceOptions: (app, reference_type) =>
     call(`${Q}.get_reference_options`, { app, reference_type }),
@@ -28,6 +28,9 @@ export const api = {
   runTestBatch: (test_cases, background = 0) =>
     call(`${M}.run_test_batch`, { test_cases: JSON.stringify(test_cases), background }),
   runAppTests: (app) => call(`${M}.run_app_tests`, { app }),
+  // UI (Cypress) tier: run one spec in a browser, sync discovered specs.
+  runUiTest: (test_case) => call(`${M}.run_ui_test`, { test_case }),
+  syncUiSpecs: (app) => call(`${M}.sync_ui_specs`, app ? { app } : {}),
   // How many failed/errored tests in a run can be re-run (to enable the button).
   getFailedTests: (run_name) => call(`${M}.get_failed_tests`, { run_name }),
   // Re-run only the failed + errored tests of a previous run as a new batch.

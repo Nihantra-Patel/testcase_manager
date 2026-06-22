@@ -291,6 +291,25 @@ function createRunner() {
     }
   }
 
+  // Run one Cypress UI spec. Always background (a browser run takes minutes), so
+  // it streams like a realtime Python run. UI counts have no separate "errors"
+  // bucket (a Cypress failure is a failure), so the footer shows passed/failed.
+  async function runUiSpec(testCaseName, label) {
+    startSession(label, 0)
+    status.value = 'Running'
+    appendLine(`▶ Running UI spec: ${label}`)
+    appendLine('Launching a headless browser — this can take a few minutes…')
+    appendLine('')
+    try {
+      const res = await api.runUiTest(testCaseName)
+      lastRun.value = res.run_name
+      subscribe(res.run_name)
+    } catch (e) {
+      appendLine('✖ Failed to start the UI test (API error).')
+      endSession()
+    }
+  }
+
   async function runBatch(names, realtime = true) {
     startSession(`${names.length} tests (batch)`, names.length)
     status.value = 'Running'
@@ -444,6 +463,7 @@ function createRunner() {
     follow,
     onAdvance,
     runOne,
+    runUiSpec,
     runSelected,
     runEntireApp,
     stop,

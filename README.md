@@ -65,6 +65,10 @@ without persisting anything.
 - **Flexible run scopes** — execute a single **Method**, a whole **File**, all
   tests for a **DocType**, an entire **App**, or a **Batch** of hand-picked tests
   that share a single (expensive) environment setup.
+- **UI (Cypress) tests** — discover and run an app's Cypress specs
+  (`cypress/integration/*.js` and `ui_test_*.js`) from the same runner. Each run
+  drives Frappe's `bench run-ui-tests` in a headless browser as a background job
+  and streams its output to the live console, just like a Python run.
 - **Realtime console** — test output streams live to the UI over websockets
   while the run is in progress.
 - **Inline & background execution** — small selections run inline for instant
@@ -98,8 +102,10 @@ testcase_manager/
 └── testcase_manager/
     ├── testcase_manager/
     │   ├── api.py                # whitelisted endpoints consumed by the SPA
-    │   ├── discovery.py          # AST-based test discovery & sync
-    │   ├── executor.py           # runs tests in-process, streams realtime output
+    │   ├── discovery.py          # AST-based Python test discovery & sync
+    │   ├── ui_discovery.py       # globs Cypress specs (cypress/integration, ui_test_*.js)
+    │   ├── executor.py           # runs Python tests in-process, streams realtime output
+    │   ├── ui_executor.py        # runs Cypress specs via `bench run-ui-tests`, streams output
     │   ├── impact.py             # static test-impact analysis over the git diff
     │   ├── profiling.py          # cProfile-based document profiler (savepoint-isolated)
     │   ├── queries.py            # read-only list/lookup queries for the SPA
@@ -198,6 +204,38 @@ then:
 
 Output streams to the console on the right; a status badge and a pass/fail
 summary appear when the run finishes. Use **Stop** to abort a running job.
+
+### UI (Cypress) tests
+
+Switch the **Kind** toggle on the Runner from **Python** to **UI** to list an
+app's Cypress specs. Discovery globs the two patterns Frappe's `cypress.config.js`
+uses — `cypress/integration/*.js` and `ui_test_*.js` anywhere in the app — and
+parses each spec's `describe()`/`it()` titles (no JS engine, no browser) so each
+row shows the spec file and how many `it()` tests it contains. **Sync** in this
+mode re-discovers UI specs.
+
+Running a spec executes `bench run-ui-tests <app> --headless --spec <file>` in a
+background worker; the Cypress output streams to the live console and the run is
+saved to History with its passed/failed counts, exactly like a Python run. UI
+runs are always background (a browser run takes minutes) and serialize with
+Python runs via the same run-lock.
+
+> **Make UI testing faster — a tiered strategy.** A real browser run is slow by
+> nature, so the fastest UI test is the one that doesn't open a browser. Think in
+> three tiers, fastest first:
+>
+> 1. **Python form / controller tests** (the **Python** tab) — most "UI
+>    behaviour" is server-side: `validate`, `before_save`, fetch-from,
+>    mandatory/`depends_on`, permissions. These run in-process in *seconds* and
+>    are your fast feedback loop. Prefer this whenever the behaviour can be
+>    checked without a browser.
+> 2. **Cypress integration with session reuse** — Frappe sets
+>    `testIsolation: false`, so specs reuse one browser session; run a single
+>    spec (one row) for a tight loop instead of the whole suite.
+> 3. **Full end-to-end Cypress** — slow; reserve for true end-to-end paths and CI.
+>
+> Testcase Manager makes the Python tier the default and treats UI as an
+> explicit, heavier opt-in — push logic down to the Python tier wherever you can.
 
 ### Test-impact analysis
 

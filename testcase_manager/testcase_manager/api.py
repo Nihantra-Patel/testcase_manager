@@ -379,6 +379,72 @@ def stop_run(run_name: str, partial_output: str | None = None) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# UI (Cypress) test execution
+# ---------------------------------------------------------------------------
+
+
+@frappe.whitelist()
+def run_ui_test(test_case: str) -> dict:
+	"""Run a single UI (Cypress) spec in the background.
+
+	UI runs always go to the background: they boot a real browser and take
+	minutes, so they must never block the request. The job streams Cypress
+	output to the live console like a Python run. Returns ``run_name``/``task_id``
+	for the UI to subscribe to realtime events.
+	"""
+	_guard()
+	tc = frappe.db.get_value(
+		"Testcase", test_case, ["app", "test_method", "test_file", "test_kind"], as_dict=True
+	)
+	if not tc or tc.test_kind != "UI":
+		frappe.throw(frappe._("This test case is not a UI spec."))
+
+	run = frappe.new_doc("Testcase Run")
+	run.test_case = test_case
+	run.app = tc.app
+	run.test_method = f"UI: {tc.test_file or tc.test_method}"
+	run.reference_type = "UI"
+	run.run_scope = "UI Spec"
+	run.total_tests = 1
+	run.site = frappe.local.site
+	run.triggered_by = frappe.session.user
+	run.status = "Pending"
+	run.realtime = 1
+	run.insert(ignore_permissions=True)
+	# Commit the run row before enqueuing so the worker can read it immediately.
+	# Mirrors run_test_case.
+	frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+
+	frappe.enqueue(
+		"testcase_manager.testcase_manager.ui_executor.execute_ui_test_job",
+		queue="long",  # browser runs are slow → long queue / timeout
+		timeout=3600,
+		job_id=f"tc_run_{run.name}",
+		on_failure="testcase_manager.testcase_manager.executor.mark_run_failed_on_job_failure",
+		run_name=run.name,
+	)
+	return {"run_name": run.name, "task_id": run.name, "background": True}
+
+
+@frappe.whitelist()
+def sync_ui_specs(app: str | None = None) -> dict:
+	"""Discover Cypress UI specs (``test_kind = UI``), scoped to *app* if given."""
+	_guard()
+	from testcase_manager.testcase_manager.ui_discovery import discover_all_ui_specs
+
+	if app and app.strip():
+		return {"status": "ok", **discover_all_ui_specs(app_name=app.strip())}
+
+	frappe.enqueue(
+		"testcase_manager.testcase_manager.ui_discovery.discover_all_ui_specs",
+		queue="long",
+		timeout=600,
+		job_id="tc_ui_sync",
+	)
+	return {"status": "queued", "message": "Full UI sync queued in background"}
+
+
+# ---------------------------------------------------------------------------
 # Test Case Discovery / Sync
 # ---------------------------------------------------------------------------
 

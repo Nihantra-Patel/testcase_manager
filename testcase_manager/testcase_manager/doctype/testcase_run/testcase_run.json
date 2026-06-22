@@ -48,7 +48,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Run Scope",
-   "options": "Method\nFile\nDocType\nApp\nBatch"
+   "options": "Method\nFile\nDocType\nApp\nBatch\nUI Spec"
   },
   {
    "default": "1",

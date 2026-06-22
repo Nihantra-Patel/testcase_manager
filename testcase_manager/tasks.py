@@ -12,8 +12,22 @@ def sync_after_migrate() -> None:
 			f"Post-migrate sync: created={result['created']}, "
 			f"updated={result['updated']}, deleted={result['deleted']}"
 		)
+		_sync_ui_specs("Post-migrate")
 	except Exception:
 		frappe.log_error("Testcase Manager post-migrate sync failed")
+
+
+def _sync_ui_specs(label: str) -> None:
+	"""Discover Cypress UI specs alongside the Python tests. Best-effort."""
+	try:
+		from testcase_manager.testcase_manager.ui_discovery import discover_all_ui_specs
+
+		ui = discover_all_ui_specs()
+		frappe.logger("testcase_manager").info(
+			f"{label} UI sync: created={ui['created']}, updated={ui['updated']}, deleted={ui['deleted']}"
+		)
+	except Exception:
+		frappe.log_error(f"Testcase Manager {label} UI sync failed")
 
 
 def _ensure_scheduler_enabled() -> None:
@@ -44,5 +58,6 @@ def sync_test_cases_daily() -> None:
 			f"Daily sync: created={result['created']}, "
 			f"updated={result['updated']}, deleted={result['deleted']}"
 		)
+		_sync_ui_specs("Daily")
 	except Exception:
 		frappe.log_error("Testcase Manager daily sync failed")

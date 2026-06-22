@@ -22,6 +22,7 @@ def get_test_cases_for_page(
 	reference_doctype: str | None = None,
 	report: str | None = None,
 	search: str | None = None,
+	test_kind: str | None = None,
 	page: int = 1,
 	page_size: int = 200,
 ) -> dict:
@@ -31,11 +32,16 @@ def get_test_cases_for_page(
 	``reference_doctype`` filters the ``reference_doctype`` field (used when
 	reference_type is "DocType").
 	``report`` filters the ``report`` field (used when reference_type is "Report").
+	``test_kind`` filters Python vs UI specs; defaults to "Python" so the existing
+	runner view is unchanged unless the UI tab is selected.
 	"""
 	tc = frappe.qb.DocType("Testcase")
 
 	# Equality filters (ANDed together).
 	criterion = tc.status == "Active"
+	# Default to Python so legacy callers keep seeing only Python tests.
+	kind = (test_kind or "Python").strip()
+	criterion &= tc.test_kind == kind
 	if app and app.strip():
 		criterion &= tc.app == app.strip()
 	if reference_type and reference_type.strip():
@@ -70,8 +76,12 @@ def get_test_cases_for_page(
 			tc.reference_doctype,
 			tc.report,
 			tc.test_file,
+			tc.test_file_path,
 			tc.test_method,
 			tc.python_path,
+			tc.test_kind,
+			tc.ui_test_count,
+			tc.ui_test_names,
 			tc.status,
 		)
 		.where(criterion)
@@ -87,17 +97,15 @@ def get_test_cases_for_page(
 
 
 @frappe.whitelist()
-def get_installed_apps_list() -> list[str]:
-	"""Return only apps that actually have discovered test cases (for filter dropdowns)."""
+def get_installed_apps_list(test_kind: str | None = None) -> list[str]:
+	"""Return only apps that actually have discovered test cases (for filter dropdowns).
+
+	Scoped to ``test_kind`` (Python by default) so the UI tab only lists apps that
+	actually have Cypress specs.
+	"""
 	tc = frappe.qb.DocType("Testcase")
-	return (
-		frappe.qb.from_(tc)
-		.select(tc.app)
-		.distinct()
-		.where(tc.status == "Active")
-		.orderby(tc.app)
-		.run(pluck=True)
-	)
+	criterion = (tc.status == "Active") & (tc.test_kind == (test_kind or "Python").strip())
+	return frappe.qb.from_(tc).select(tc.app).distinct().where(criterion).orderby(tc.app).run(pluck=True)
 
 
 @frappe.whitelist()
