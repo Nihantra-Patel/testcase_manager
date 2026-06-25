@@ -61,3 +61,16 @@ def sync_test_cases_daily() -> None:
 		_sync_ui_specs("Daily")
 	except Exception:
 		frappe.log_error("Testcase Manager daily sync failed")
+
+
+def compute_flaky_tests_daily() -> None:
+	"""Daily scheduler: recompute the ``is_flaky`` flag on every Testcase."""
+	try:
+		from testcase_manager.testcase_manager.api import compute_flaky_tests
+
+		result = compute_flaky_tests()
+		frappe.logger("testcase_manager").info(
+			f"Daily flaky scan: checked={result['checked']}, flaky={result['flaky']}"
+		)
+	except Exception:
+		frappe.log_error("Testcase Manager daily flaky scan failed")

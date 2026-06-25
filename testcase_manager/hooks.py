@@ -9,6 +9,7 @@ app_license = "mit"
 scheduler_events = {
 	"daily": [
 		"testcase_manager.tasks.sync_test_cases_daily",
+		"testcase_manager.tasks.compute_flaky_tests_daily",
 	],
 }
 

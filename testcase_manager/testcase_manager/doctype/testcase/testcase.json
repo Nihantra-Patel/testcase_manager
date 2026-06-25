@@ -22,6 +22,7 @@
   "ui_test_names",
   "section_break_meta",
   "status",
+  "is_flaky",
   "last_synced"
  ],
  "fields": [
@@ -142,6 +143,17 @@
    "options": "Active\nInactive"
   },
   {
+   "default": "0",
+   "description": "Set automatically: the last few runs of this test mixed pass and fail/error.",
+   "fieldname": "is_flaky",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Flaky",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
    "fieldname": "last_synced",
    "fieldtype": "Datetime",
    "label": "Last Synced",
@@ -149,7 +161,7 @@
   }
  ],
  "links": [],
- "modified": "2026-06-07 01:56:25.698281",
+ "modified": "2026-06-26 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Testcase Manager",
  "name": "Testcase",

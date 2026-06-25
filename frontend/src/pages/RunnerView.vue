@@ -55,13 +55,22 @@
 
       <div v-if="kind === 'Python'">
         <div class="mb-1 text-xs font-semibold text-ink-gray-5">Mode</div>
-        <label
-          class="flex h-[28px] cursor-pointer select-none items-center gap-1.5 text-xs text-ink-gray-6"
-          title="On: background job with live streaming. Off: inline run, faster, output shown when finished."
-        >
-          <input type="checkbox" v-model="realtime" class="tc-checkbox" />
-          Realtime run
-        </label>
+        <div class="flex items-center gap-3">
+          <label
+            class="flex h-[28px] cursor-pointer select-none items-center gap-1.5 text-xs text-ink-gray-6"
+            title="On: background job with live streaming. Off: inline run, faster, output shown when finished."
+          >
+            <input type="checkbox" v-model="realtime" class="tc-checkbox" />
+            Realtime run
+          </label>
+          <label
+            class="flex h-[28px] cursor-pointer select-none items-center gap-1.5 text-xs text-ink-gray-6"
+            title="On: stop the run at the first failure or error (handy when debugging a flaky test)."
+          >
+            <input type="checkbox" v-model="failfast" class="tc-checkbox" />
+            Fail fast
+          </label>
+        </div>
       </div>
 
       <!-- Actions: pushed to the right edge, aligned to the controls' baseline. -->
@@ -233,6 +242,13 @@
                 <div class="min-w-0 flex-1 cursor-pointer" @click="toggleOne(tc.name)">
                   <div class="flex items-center gap-1.5">
                     <span class="truncate text-sm font-semibold">{{ tc.test_method }}</span>
+                    <span
+                      v-if="tc.is_flaky"
+                      class="flex-shrink-0 rounded bg-surface-amber-2 px-1.5 py-0.5 text-[10px] font-medium text-ink-amber-3"
+                      title="Flaky: recent runs of this test mixed pass and fail/error."
+                    >
+                      ⚠️ Flaky
+                    </span>
                     <span
                       v-if="tc.test_kind === 'UI' && tc.ui_test_count"
                       class="flex-shrink-0 rounded bg-surface-gray-3 px-1.5 py-0.5 text-[10px] font-medium text-ink-gray-6"
@@ -449,6 +465,9 @@ const kind = ref('Python')
 // Realtime ON  → background job with live streaming (default).
 // Realtime OFF → inline run, faster, output shown at completion.
 const realtime = ref(true)
+// Fail fast OFF by default → a run executes every selected test even if one fails.
+// ON → stop at the first failure/error (Frappe TestConfig.failfast), for debugging.
+const failfast = ref(false)
 const records = ref([])
 const total = ref(0)
 const selected = ref([])
@@ -505,7 +524,7 @@ function clearImpact() {
 async function runAffected() {
   const names = (impact.result?.affected || []).map((a) => a.name)
   if (!names.length) return
-  await runner.runSelected(names, records.value, realtime.value)
+  await runner.runSelected(names, records.value, realtime.value, failfast.value)
   selected.value = []
   nudgeOwnRun()
 }
@@ -709,7 +728,7 @@ function saveFilters() {
   try {
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ ...filters, realtime: realtime.value, kind: kind.value }),
+      JSON.stringify({ ...filters, realtime: realtime.value, failfast: failfast.value, kind: kind.value }),
     )
   } catch (e) {
     /* ignore */
@@ -719,6 +738,7 @@ function restoreFilters() {
   try {
     const s = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
     if (typeof s.realtime === 'boolean') realtime.value = s.realtime
+    if (typeof s.failfast === 'boolean') failfast.value = s.failfast
     if (s.kind === 'Python' || s.kind === 'UI') kind.value = s.kind
     Object.assign(filters, { app: s.app, type: s.type, ref: s.ref, search: s.search })
   } catch (e) {
@@ -734,6 +754,7 @@ function resetFilters() {
   filters.ref = ''
   filters.search = ''
   realtime.value = true
+  failfast.value = false
   kind.value = 'Python'
   loadApps()
   try {
@@ -771,6 +792,15 @@ watch(
   },
 )
 watch(realtime, saveFilters)
+watch(failfast, saveFilters)
+// When a run finishes (running → idle), reload the list so the ⚠️ Flaky badges
+// reflect the executor's per-run recompute (a test can become or stop being flaky).
+watch(
+  () => runner.isRunning.value,
+  (running, was) => {
+    if (was && !running) queueQuery()
+  },
+)
 
 // ── Actions ─────────────────────────────────────────────────────────────────
 // After starting a run, refresh a few times so it starts following promptly
@@ -787,13 +817,13 @@ async function runSelected() {
     const specs = records.value.filter((r) => selected.value.includes(r.name))
     await runner.runUiSpecs(specs)
   } else {
-    await runner.runSelected(selected.value, records.value, realtime.value)
+    await runner.runSelected(selected.value, records.value, realtime.value, failfast.value)
   }
   selected.value = [] // clear the selection once it's been submitted to run
   nudgeOwnRun()
 }
 async function runOne(name, label) {
-  await runner.runOne(name, label, realtime.value)
+  await runner.runOne(name, label, realtime.value, failfast.value)
   nudgeOwnRun()
 }
 function confirmRunApp() {

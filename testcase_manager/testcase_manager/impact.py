@@ -108,6 +108,102 @@ def get_changed_files(app: str, base: str | None = None) -> dict:
 	return {"base": base, "head": head, "files": sorted(files)}
 
 
+def _changed_line_ranges(app_path: str, rel_path: str, base: str) -> list[tuple[int, int]]:
+	"""New-file line ranges touched by the diff for *rel_path* (committed + working).
+
+	Parses unified-diff hunk headers ``@@ -a,b +c,d @@`` and returns the ``+`` side
+	ranges (lines in the CURRENT file). Combining the base-diff with working-tree diffs
+	mirrors get_changed_files, so uncommitted edits count too. Empty list = file added
+	or unparseable → caller should fall back to whole-file impact.
+	"""
+	ranges: list[tuple[int, int]] = []
+	for args in (
+		["git", "diff", "--unified=0", f"{base}...HEAD", "--", rel_path],
+		["git", "diff", "--unified=0", "--", rel_path],
+		["git", "diff", "--unified=0", "--cached", "--", rel_path],
+	):
+		try:
+			out = subprocess.run(args, cwd=app_path, capture_output=True, text=True, timeout=20)
+		except Exception:
+			continue
+		for line in out.stdout.splitlines():
+			if not line.startswith("@@"):
+				continue
+			# @@ -old,oldn +new,newn @@  → we want the +new,newn part.
+			try:
+				plus = line.split("+", 1)[1].split(" ", 1)[0]
+				if "," in plus:
+					start_s, count_s = plus.split(",", 1)
+					start, count = int(start_s), int(count_s)
+				else:
+					start, count = int(plus), 1
+				if count == 0:
+					# Pure deletion: attribute it to the line it sits at.
+					ranges.append((start, start))
+				else:
+					ranges.append((start, start + count - 1))
+			except (ValueError, IndexError):
+				continue
+	return ranges
+
+
+def _changed_functions(file_path: str, line_ranges: list[tuple[int, int]]) -> dict:
+	"""Map changed line ranges to the functions/methods that contain them.
+
+	Returns ``{"methods": {(ClassName, method_name), …}, "non_test_scope": bool}``:
+	  • ``methods`` — the specific ``test_*`` methods whose body the diff touched.
+	  • ``non_test_scope`` — True if any change fell OUTSIDE a test method (imports,
+	    class body, setUp/setUpClass/tearDown, a module-level helper). Such a change can
+	    affect every test in the file, so the caller widens to the whole file.
+
+	Best-effort: a parse failure returns ``non_test_scope=True`` so we stay safe
+	(treat the whole file as impacted rather than miss something).
+	"""
+	result = {"methods": set(), "non_test_scope": False}
+	try:
+		with open(file_path, encoding="utf-8") as fh:
+			tree = ast.parse(fh.read(), filename=file_path)
+	except Exception:
+		result["non_test_scope"] = True
+		return result
+
+	def _overlaps(lo: int, hi: int) -> bool:
+		return any(not (hi < s or lo > e) for s, e in line_ranges)
+
+	# Walk classes → their methods; record which test methods overlap a changed range.
+	covered_by_method: list[tuple[int, int]] = []
+	for node in tree.body:
+		if isinstance(node, ast.ClassDef):
+			cls = node.name
+			for item in node.body:
+				if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+					lo = item.lineno
+					hi = getattr(item, "end_lineno", lo)
+					if _overlaps(lo, hi):
+						if item.name.startswith("test_"):
+							result["methods"].add((cls, item.name))
+						else:
+							# setUp/setUpClass/tearDown/helper inside the class → affects all.
+							result["non_test_scope"] = True
+						covered_by_method.append((lo, hi))
+		elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+			lo = node.lineno
+			hi = getattr(node, "end_lineno", lo)
+			if _overlaps(lo, hi):
+				# Module-level function (a shared helper) → affects all tests in the file.
+				result["non_test_scope"] = True
+				covered_by_method.append((lo, hi))
+
+	# Any changed range that fell inside NO function (imports, class attributes,
+	# module constants) is file-wide scope.
+	for lo, hi in line_ranges:
+		if not any(not (hi < s or lo > e) for s, e in covered_by_method):
+			result["non_test_scope"] = True
+			break
+
+	return result
+
+
 def _rel_to_module(app: str, rel_path: str) -> str | None:
 	"""``lending/loan_management/x.py`` → dotted module ``lending.loan_management.x``."""
 	if not rel_path.endswith(".py"):
@@ -301,6 +397,30 @@ def analyze(app: str, base: str | None = None, depth: int = 2) -> dict:
 
 	diff = get_changed_files(app, base)
 	changed = diff["files"]
+	app_path = _app_path(app)
+	resolved_base = diff["base"]
+
+	# For each changed TEST file, work out which test methods actually changed vs whether
+	# a file-wide change (setUp/imports/helpers) means every test in it is affected. This
+	# narrows Rule 1 from "whole file" to "just the changed method(s)" when only a single
+	# test body was edited — the common precision win.
+	changed_test_methods: dict[str, set[tuple[str, str]]] = {}  # rel_path -> {(Class, method)}
+	filewide_test_files: set[str] = set()
+	for rel in changed:
+		fname = rel.split("/")[-1]
+		if not (fname.startswith("test_") and fname.endswith(".py")):
+			continue
+		abs_path = os.path.join(app_path, rel)
+		ranges = _changed_line_ranges(app_path, rel, resolved_base)
+		if not ranges:
+			# Added file or no parseable hunks → treat the whole file as impacted.
+			filewide_test_files.add(rel)
+			continue
+		info = _changed_functions(abs_path, ranges)
+		if info["non_test_scope"]:
+			filewide_test_files.add(rel)
+		if info["methods"]:
+			changed_test_methods[rel] = info["methods"]
 
 	# Changed Python modules (dotted) and changed doctype names.
 	changed_modules: set[str] = set()
@@ -309,12 +429,20 @@ def analyze(app: str, base: str | None = None, depth: int = 2) -> dict:
 		mod = _rel_to_module(app, rel)
 		if mod:
 			changed_modules.add(mod)
-		# A doctype's folder holds <name>.json/.py: …/doctype/<name>/<name>.(py|json)
+		# A doctype's folder holds <name>.json/.py: …/doctype/<name>/<name>.(py|json).
+		# Only the doctype's OWN controller/schema counts as "the doctype changed" — a
+		# test file in the same folder (test_<name>.py) is a TEST change, not a doctype
+		# change. Treating test files as doctype changes wrongly fans out to every test
+		# of that doctype (Rule 4), which is the main cause of over-selection.
 		parts = rel.split("/")
 		if "doctype" in parts:
 			i = parts.index("doctype")
 			if i + 1 < len(parts):
-				changed_doctypes.add(frappe.unscrub(parts[i + 1]))
+				dt_slug = parts[i + 1]
+				fname = parts[-1]
+				is_controller_or_schema = fname in (f"{dt_slug}.py", f"{dt_slug}.json")
+				if is_controller_or_schema:
+					changed_doctypes.add(frappe.unscrub(dt_slug))
 
 	# All active testcases for this app, with the metadata we match on.
 	tests = frappe.get_all(
@@ -354,9 +482,22 @@ def analyze(app: str, base: str | None = None, depth: int = 2) -> dict:
 	for t in tests:
 		test_mod = t.get("python_path") or ""
 
-		# 1) The test file itself changed.
-		if t.get("test_file_path") and t["test_file_path"] in changed:
-			_mark(t, "Test file changed")
+		# 1) The test file itself changed. Refined to method granularity: if the diff
+		#    only touched specific test_* method bodies (not setUp/imports/helpers), flag
+		#    just those tests; otherwise (file-wide change) flag every test in the file.
+		tfp = t.get("test_file_path")
+		if tfp and tfp in changed:
+			if tfp in filewide_test_files:
+				_mark(t, "Test file changed (setup/imports/shared — affects all tests)")
+			elif tfp in changed_test_methods:
+				# Match this testcase's method against the changed methods in its file.
+				# Compare by method name (the (Class, method) tuple's method part), since
+				# Testcase stores test_method but not the class.
+				changed_names = {m for (_cls, m) in changed_test_methods[tfp]}
+				if t.get("test_method") in changed_names:
+					_mark(t, "Test method changed")
+			# else: file is in the diff but neither file-wide nor this method → skip
+			#       (e.g. only a sibling test method changed). This is the narrowing.
 
 		# 2) The test directly imports a changed module. Read the test's imports from
 		#    the cached graph (keyed by dotted module) instead of re-reading and

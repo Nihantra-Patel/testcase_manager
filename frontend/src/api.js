@@ -23,10 +23,10 @@ export const api = {
     call('testcase_manager.testcase_manager.executor.get_live_output', { run_name }),
 
   // ── Execution ──────────────────────────────────────────────────────
-  runTestCase: (test_case, run_scope = 'Method', background = 0) =>
-    call(`${M}.run_test_case`, { test_case, run_scope, background }),
-  runTestBatch: (test_cases, background = 0) =>
-    call(`${M}.run_test_batch`, { test_cases: JSON.stringify(test_cases), background }),
+  runTestCase: (test_case, run_scope = 'Method', background = 0, failfast = 0) =>
+    call(`${M}.run_test_case`, { test_case, run_scope, background, failfast }),
+  runTestBatch: (test_cases, background = 0, failfast = 0) =>
+    call(`${M}.run_test_batch`, { test_cases: JSON.stringify(test_cases), background, failfast }),
   runAppTests: (app) => call(`${M}.run_app_tests`, { app }),
   // UI (Cypress) tier: run one spec in a browser, sync discovered specs.
   runUiTest: (test_case) => call(`${M}.run_ui_test`, { test_case }),

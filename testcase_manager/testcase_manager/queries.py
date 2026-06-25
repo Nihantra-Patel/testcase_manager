@@ -83,6 +83,7 @@ def get_test_cases_for_page(
 			tc.ui_test_count,
 			tc.ui_test_names,
 			tc.status,
+			tc.is_flaky,
 		)
 		.where(criterion)
 		.orderby(tc.app)

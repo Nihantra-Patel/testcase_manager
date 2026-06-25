@@ -373,7 +373,9 @@ def execute_test_case_job(run_name: str) -> None:
 	stream = RealtimeLineStream(task_id, run_name)
 
 	try:
-		run_doc = frappe.db.get_value("Testcase Run", run_name, ["test_case", "run_scope"], as_dict=True)
+		run_doc = frappe.db.get_value(
+			"Testcase Run", run_name, ["test_case", "run_scope", "failfast"], as_dict=True
+		)
 		tc = frappe.db.get_value(
 			"Testcase",
 			run_doc.test_case,
@@ -382,7 +384,7 @@ def execute_test_case_job(run_name: str) -> None:
 		)
 		run_scope = run_doc.run_scope or "Method"
 
-		all_results = _run_tests_in_process(tc, run_scope, stream)
+		all_results = _run_tests_in_process(tc, run_scope, stream, failfast=bool(run_doc.failfast))
 
 		stream.flush()
 		duration = round(time.monotonic() - start_ts, 3)
@@ -435,6 +437,10 @@ def execute_test_case_job(run_name: str) -> None:
 		log.execution_status = status
 		log.insert(ignore_permissions=True)
 		frappe.db.commit()
+
+		# Refresh the flaky flag for just this test now (cheap), so the badge updates
+		# within seconds instead of waiting for the daily full scan.
+		_refresh_flaky([run_doc.test_case])
 
 		_publish(
 			task_id,
@@ -520,12 +526,13 @@ def execute_test_batch_job(run_name: str, test_cases: list[str]) -> None:
 	stream = RealtimeLineStream(task_id, run_name)
 
 	try:
+		failfast = bool(frappe.db.get_value("Testcase Run", run_name, "failfast"))
 		# Only a few fields are needed per testcase — fetch them, not full docs.
 		tcs = [
 			frappe.db.get_value("Testcase", name, ["name", "app", "test_method", "python_path"], as_dict=True)
 			for name in test_cases
 		]
-		all_results = _run_batch_in_process(tcs, stream)
+		all_results = _run_batch_in_process(tcs, stream, failfast=failfast)
 
 		stream.flush()
 		duration = round(time.monotonic() - start_ts, 3)
@@ -576,6 +583,10 @@ def execute_test_batch_job(run_name: str, test_cases: list[str]) -> None:
 		log.execution_status = status
 		log.insert(ignore_permissions=True)
 		frappe.db.commit()
+
+		# Refresh the flaky flag for the batch's tests now (cheap), so badges update
+		# within seconds instead of waiting for the daily full scan.
+		_refresh_flaky(test_cases)
 
 		_publish(
 			task_id,
@@ -670,7 +681,7 @@ def _streaming_result_class():
 	return StreamingTestResult
 
 
-def _run_tests_in_process(tc, run_scope: str, stream: "RealtimeLineStream") -> list:
+def _run_tests_in_process(tc, run_scope: str, stream: "RealtimeLineStream", failfast: bool = False) -> list:
 	"""
 	Run Frappe tests in-process using the same TestRunner frappe uses.
 	Returns a list of unittest.TestResult objects.
@@ -709,7 +720,7 @@ def _run_tests_in_process(tc, run_scope: str, stream: "RealtimeLineStream") -> l
 		runner = TestRunner(
 			stream=stream,
 			verbosity=2,
-			cfg=TestConfig(tests=cfg_tests),
+			cfg=TestConfig(tests=cfg_tests, failfast=failfast),
 			resultclass=_streaming_result_class(),
 		)
 		# Safe in background job — frappe.init() returns early if already init'd;
@@ -730,7 +741,7 @@ def _run_tests_in_process(tc, run_scope: str, stream: "RealtimeLineStream") -> l
 		return _go()
 
 
-def _run_batch_in_process(tcs: list, stream: "RealtimeLineStream") -> list:
+def _run_batch_in_process(tcs: list, stream: "RealtimeLineStream", failfast: bool = False) -> list:
 	"""
 	Run many test methods in a SINGLE runner so the expensive environment setup
 	(`_initialize_test_environment`, `before_tests` hooks, global dependency
@@ -757,7 +768,10 @@ def _run_batch_in_process(tcs: list, stream: "RealtimeLineStream") -> list:
 		# checks in test helpers (e.g. make_item) on a fresh site. See _run_tests_in_process.
 		frappe.set_user("Administrator")
 		runner = TestRunner(
-			stream=stream, verbosity=2, cfg=TestConfig(tests=methods), resultclass=_streaming_result_class()
+			stream=stream,
+			verbosity=2,
+			cfg=TestConfig(tests=methods, failfast=failfast),
+			resultclass=_streaming_result_class(),
 		)
 		_initialize_test_environment(site, runner.cfg)
 		discover_module_tests(python_paths, runner, app)
@@ -857,6 +871,24 @@ def _write_errors_to_stream(stream: "RealtimeLineStream", result) -> None:
 # ---------------------------------------------------------------------------
 # Realtime helper
 # ---------------------------------------------------------------------------
+
+
+def _refresh_flaky(test_case_names: list[str]) -> None:
+	"""Recompute is_flaky for the just-run test(s). Best-effort: never break a run.
+
+	Scoped to the run's own tests (not a full scan), so it's cheap to do on every
+	completion. Commits its own change so the updated flag is visible immediately.
+	"""
+	try:
+		from testcase_manager.testcase_manager.api import _recompute_flaky_for
+
+		names = [n for n in (test_case_names or []) if n]
+		if not names:
+			return
+		_recompute_flaky_for(names)
+		frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+	except Exception:
+		frappe.log_error("Testcase Manager: failed to refresh flaky flags after run")
 
 
 def _publish(task_id: str, event: str, message: dict) -> None:

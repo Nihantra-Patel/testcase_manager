@@ -8,6 +8,7 @@
   "test_case",
   "run_scope",
   "realtime",
+  "failfast",
   "status",
   "column_break_1",
   "site",
@@ -56,6 +57,14 @@
    "fieldname": "realtime",
    "fieldtype": "Check",
    "label": "Realtime",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Stop the run at the first failure/error (Frappe TestConfig.failfast).",
+   "fieldname": "failfast",
+   "fieldtype": "Check",
+   "label": "Fail Fast",
    "read_only": 1
   },
   {
@@ -197,7 +206,7 @@
   }
  ],
  "links": [],
- "modified": "2026-06-07 01:56:38.419628",
+ "modified": "2026-06-26 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Testcase Manager",
  "name": "Testcase Run",

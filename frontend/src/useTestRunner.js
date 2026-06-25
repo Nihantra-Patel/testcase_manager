@@ -282,17 +282,18 @@ function createRunner() {
     endSession()
   }
 
-  async function runOne(testCaseName, label, realtime = true) {
+  async function runOne(testCaseName, label, realtime = true, failfast = false) {
     startSession(label, 1)
     status.value = 'Running'
     appendLine(`▶ Running test: ${label}`)
+    if (failfast) appendLine('Fail fast on — stops at the first failure/error.')
     if (!realtime) appendLine('Running inline — output appears when finished…')
     appendLine('')
     if (!realtime) inlineRunning.value = true
     try {
       // Realtime → background job, worker streams per-test progress live.
       // Inline (realtime off) → blocks the request, output returned at the end.
-      const res = await api.runTestCase(testCaseName, 'Method', realtime ? 1 : 0)
+      const res = await api.runTestCase(testCaseName, 'Method', realtime ? 1 : 0, failfast ? 1 : 0)
       lastRun.value = res.run_name
       if (realtime) subscribe(res.run_name)
       else renderInline(res.result || {})
@@ -348,10 +349,11 @@ function createRunner() {
     }
   }
 
-  async function runBatch(names, realtime = true) {
+  async function runBatch(names, realtime = true, failfast = false) {
     startSession(`${names.length} tests (batch)`, names.length)
     status.value = 'Running'
     appendLine(`▶ Running ${names.length} tests together (one shared setup)`)
+    if (failfast) appendLine('Fail fast on — stops at the first failure/error.')
     appendLine(
       realtime
         ? 'Please wait — test environment is being prepared…'
@@ -360,7 +362,7 @@ function createRunner() {
     appendLine('')
     if (!realtime) inlineRunning.value = true
     try {
-      const res = await api.runTestBatch(names, realtime ? 1 : 0)
+      const res = await api.runTestBatch(names, realtime ? 1 : 0, failfast ? 1 : 0)
       lastRun.value = res.run_name
       if (realtime) subscribe(res.run_name)
       else renderInline(res.result || {})
@@ -372,13 +374,13 @@ function createRunner() {
     }
   }
 
-  function runSelected(names, records, realtime = true) {
+  function runSelected(names, records, realtime = true, failfast = false) {
     if (!names.length) return
     if (names.length === 1) {
       const rec = records.find((r) => r.name === names[0])
-      return runOne(names[0], rec?.test_method || names[0], realtime)
+      return runOne(names[0], rec?.test_method || names[0], realtime, failfast)
     }
-    return runBatch(names, realtime)
+    return runBatch(names, realtime, failfast)
   }
 
   async function runEntireApp(app, total = 0) {

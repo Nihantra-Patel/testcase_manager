@@ -59,7 +59,12 @@ def _combined_reference_type(test_case_names: list[str]) -> str:
 
 
 @frappe.whitelist()
-def run_test_case(test_case: str, run_scope: str = "Method", background: int | str | bool = 0) -> dict:
+def run_test_case(
+	test_case: str,
+	run_scope: str = "Method",
+	background: int | str | bool = 0,
+	failfast: int | str | bool = 0,
+) -> dict:
 	"""
 	Create a Test Case Run and execute it.
 
@@ -67,6 +72,10 @@ def run_test_case(test_case: str, run_scope: str = "Method", background: int | s
 	request — faster, no RQ queue/worker pickup latency. The UI uses this for
 	single tests and small selections. Heavy runs (>20 tests, "Run Entire App")
 	pass ``background=1`` so they execute in an RQ worker without blocking.
+
+	``failfast`` stops the run at the first failure/error (Frappe TestConfig.failfast,
+	see frappe PR #37654) — useful when debugging a flaky test so you stop at the
+	first red instead of waiting for the whole suite.
 
 	Returns:
 	    dict with ``run_name`` (the new Test Case Run ID) and ``task_id``
@@ -102,7 +111,9 @@ def run_test_case(test_case: str, run_scope: str = "Method", background: int | s
 	else:
 		run.total_tests = 1
 	use_bg = str(background) not in ("0", "", "false", "False", "None")
+	use_failfast = str(failfast) not in ("0", "", "false", "False", "None")
 	run.realtime = 1 if use_bg else 0
+	run.failfast = 1 if use_failfast else 0
 	run.insert(ignore_permissions=True)
 	frappe.db.commit()
 
@@ -171,13 +182,16 @@ def _inline_result(run_name: str) -> dict:
 
 
 @frappe.whitelist()
-def run_test_batch(test_cases: str | list, background: int | str | bool = 0) -> dict:
+def run_test_batch(
+	test_cases: str | list, background: int | str | bool = 0, failfast: int | str | bool = 0
+) -> dict:
 	"""
 	Run several selected tests as ONE batch (single environment setup).
 
 	``test_cases`` is a JSON array (or list) of Testcase names. The whole batch
 	is anchored on one Testcase Run. Runs inline by default; pass background=1
-	for large selections.
+	for large selections. ``failfast`` stops at the first failure/error (see
+	``run_test_case`` and frappe PR #37654).
 	"""
 	_guard()
 	import json
@@ -203,6 +217,7 @@ def run_test_batch(test_cases: str | list, background: int | str | bool = 0) -> 
 	run.total_tests = len(test_cases)  # for live "done / total" progress
 	use_bg = str(background) not in ("0", "", "false", "False", "None")
 	run.realtime = 1 if use_bg else 0
+	run.failfast = 1 if str(failfast) not in ("0", "", "false", "False", "None") else 0
 	run.insert(ignore_permissions=True)
 	frappe.db.commit()
 
@@ -552,6 +567,76 @@ def run_app_tests(app: str) -> dict:
 		frappe.throw(f"No active test cases found for app '{app}'")
 	# Whole-app runs are long → always background.
 	return run_test_case(anchor, run_scope="App", background=1)
+
+
+# ---------------------------------------------------------------------------
+# Flaky test detection
+# ---------------------------------------------------------------------------
+
+
+def _is_flaky_window(statuses: list[str]) -> bool:
+	"""A test is flaky if its recent outcomes mix a pass with a fail/error.
+
+	We treat both ``Failed`` and ``Error`` as the "red" side, so a test that
+	alternates between green and red across its last few runs — without any code
+	change forcing it — is unstable. A window that is all-green or all-red is not
+	flaky; it's consistently passing or consistently broken.
+	"""
+	seen = set(statuses)
+	has_pass = "Passed" in seen
+	has_fail = bool(seen & {"Failed", "Error"})
+	return has_pass and has_fail
+
+
+def _recompute_flaky_for(test_case_names: list[str], window: int = 10) -> int:
+	"""Recompute ``is_flaky`` for the given Testcases from their run history.
+
+	Shared core of the full daily scan and the after-each-run refresh. For each
+	test we read its most recent *window* Testcase Log outcomes (newest first) and
+	flag it flaky when those mix pass and fail/error (see ``_is_flaky_window``).
+	Flips the flag both ways, so a test that has gone green for its whole window is
+	automatically un-flagged. Returns how many of the given tests are now flaky.
+
+	Definition is history-window based (not git-commit based): the logs don't record
+	a commit hash, so "same commit" can't be computed. A future precision upgrade can
+	add a commit field to Testcase Run and scope the window to one commit.
+	"""
+	window = max(2, int(window))  # need at least two runs to mix outcomes
+	log = frappe.qb.DocType("Testcase Log")
+	flaky = 0
+	for tc_name in test_case_names:
+		statuses = (
+			frappe.qb.from_(log)
+			.select(log.execution_status)
+			.where(log.test_case == tc_name)
+			.orderby(log.creation, order=frappe.qb.desc)
+			.limit(window)
+			.run(pluck=True)
+		)
+		if not statuses:
+			continue
+		is_flaky = 1 if _is_flaky_window(statuses) else 0
+		if is_flaky:
+			flaky += 1
+		# update_modified=False: recomputation must not churn the doctype timestamp.
+		if frappe.db.get_value("Testcase", tc_name, "is_flaky") != is_flaky:
+			frappe.db.set_value("Testcase", tc_name, "is_flaky", is_flaky, update_modified=False)
+	return flaky
+
+
+@frappe.whitelist()
+def compute_flaky_tests(window: int | str = 10) -> dict:
+	"""Recompute the ``is_flaky`` flag on every Testcase (full scan).
+
+	Runs from the daily scheduler and on demand. For per-run freshness the
+	executor calls ``_recompute_flaky_for`` on just the run's tests instead.
+	Returns how many tests were checked and how many are now flaky.
+	"""
+	_guard()
+	names = frappe.get_all("Testcase", pluck="name")
+	flaky = _recompute_flaky_for(names, int(window))
+	frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+	return {"checked": len(names), "flaky": flaky, "window": max(2, int(window))}
 
 
 # ---------------------------------------------------------------------------
