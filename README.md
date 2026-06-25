@@ -69,6 +69,14 @@ without persisting anything.
   (`cypress/integration/*.js` and `ui_test_*.js`) from the same runner. Each run
   drives Frappe's `bench run-ui-tests` in a headless browser as a background job
   and streams its output to the live console, just like a Python run.
+- **Fail fast** — an optional **Fail fast** toggle stops a run at the first
+  failure or error instead of running the rest, for a quick debugging loop
+  (uses Frappe's `TestConfig.failfast`). Off by default, so a normal run still
+  executes every selected test.
+- **Flaky test detection** — a test is flagged **Flaky** when its recent runs
+  (the last 10) mix pass and fail/error. The Runner shows a ⚠️ Flaky badge; the
+  flag is recomputed after each run and daily, so it clears on its own once a
+  test goes green again.
 - **Realtime console** — test output streams live to the UI over websockets
   while the run is in progress.
 - **Inline & background execution** — small selections run inline for instant
@@ -78,8 +86,10 @@ without persisting anything.
   output, status, and duration) and `Testcase Log` (with pass/fail/error counts),
   browsable through a paginated, filterable History view.
 - **Test-impact analysis** — before opening a PR, statically analyse a branch's
-  git diff to find which tests are affected (via the import graph and DocType
-  links) and run only those as a batch — no tests are executed during analysis.
+  git diff to find which tests are affected (via the import graph, DocType links,
+  and a function-level diff that flags just the changed test method when only one
+  test body changed) and run only those as a batch — no tests are executed during
+  analysis.
 - **Document profiler** — profile a single document's `submit` or `cancel`
   in-place using `cProfile`, run inside a savepoint that is rolled back so all
   hooks fire (real timings) but nothing persists. Replaces the manual
@@ -129,8 +139,8 @@ testcase_manager/
 
 | DocType        | Purpose                                                              |
 | -------------- | ------------------------------------------------------------------- |
-| `Testcase`     | A discovered test method (app, module, path, reference DocType/Report). |
-| `Testcase Run` | One execution (scope, status, timing, full output, traceback).      |
+| `Testcase`     | A discovered test method (app, module, path, reference DocType/Report, flaky flag). |
+| `Testcase Run` | One execution (scope, status, timing, full output, traceback, fail-fast flag). |
 | `Testcase Log` | Result summary for a run (pass / fail / error counts, duration).    |
 
 ### Routing
@@ -146,7 +156,7 @@ Configured via `hooks.py`:
 | Hook                       | Behaviour                                  |
 | -------------------------- | ------------------------------------------ |
 | `after_migrate`            | Full re-sync of discovered tests after every `bench migrate`. |
-| `scheduler_events.daily`   | Daily full re-sync.                        |
+| `scheduler_events.daily`   | Daily full re-sync, and a daily flaky-flag recompute for every test. |
 
 ### Log retention
 
@@ -205,6 +215,15 @@ then:
 Output streams to the console on the right; a status badge and a pass/fail
 summary appear when the run finishes. Use **Stop** to abort a running job.
 
+Two run options sit next to the test list:
+
+- **Fail fast** — when on, the run stops at the first failure or error instead
+  of running the rest. Off by default. Handy for debugging a flaky test: stop at
+  the first red rather than waiting for the whole selection.
+- **Flaky badge** — a ⚠️ **Flaky** badge appears next to any test whose last 10
+  runs mixed pass and fail/error. It updates after each run and clears on its own
+  once the test's recent runs are all green.
+
 ### UI (Cypress) tests
 
 Switch the **Kind** toggle on the Runner from **Python** to **UI** to list an
@@ -259,9 +278,13 @@ With an app selected, click **Analyze Impact** to see which tests a branch's
 changes affect — **without running anything**. It reads the app's git diff
 (committed + uncommitted) and works out the affected tests from:
 
+- a **function-level diff** of changed test files — if only one test method's
+  body changed, just that test is flagged; if setup (`setUpClass`/`setUp`),
+  imports, or a shared helper changed, every test in the file is flagged,
 - the **import graph** (a test that imports a changed module, directly or through
   a bounded chain of intermediate modules), and
-- **DocType links** (a changed DocType affects its own tests).
+- **DocType links** (a changed DocType controller or schema affects its own
+  tests — editing only a `test_*.py` file no longer counts as a DocType change).
 
 Each affected test shows the reason it was picked; a **depth** selector controls
 how many import hops to follow. Use **Run affected** to execute just those tests
