@@ -4,7 +4,7 @@ exclude: |
         node_modules|
         \.git|
         ^testcase_manager/public/frontend/|
-        ^testcase_manager/www/testcase-manager\.html$
+        ^testcase_manager/www/testcase_manager\.html$
     )
 default_stages: [pre-commit]
 fail_fast: false

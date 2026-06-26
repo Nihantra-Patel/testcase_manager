@@ -20,9 +20,13 @@ after_migrate = ["testcase_manager.tasks.sync_after_migrate"]
 # Vue SPA (frappe-ui) — served at /testcase-manager
 # ---------------------------------------------------------------------------
 # vue-router uses history mode, so every /testcase-manager/<sub-route> must be
-# served by the same SPA page (www/testcase-manager.html, built from frontend/).
+# served by the same SPA page. The www page stays underscored (to_route =
+# "testcase_manager") because Frappe imports the www controller as a Python
+# module and a hyphen is not a valid module name; the public hyphenated URL is
+# just the from_route.
 website_route_rules = [
-	{"from_route": "/testcase-manager/<path:app_path>", "to_route": "testcase-manager"},
+	{"from_route": "/testcase-manager", "to_route": "testcase_manager"},
+	{"from_route": "/testcase-manager/<path:app_path>", "to_route": "testcase_manager"},
 ]
 
 export_python_type_annotations = True

@@ -1,6 +1,6 @@
 """Server context for the Testcase Manager Vue SPA (route: /testcase-manager).
 
-The built index.html (frontend/index.html → www/testcase-manager.html) is a Jinja
+The built index.html (frontend/index.html → www/testcase_manager.html) is a Jinja
 template; ``jinjaBootData`` in the frappe-ui Vite plugin injects a ``boot`` object
 into the page so the frontend can initialise the socket connection and CSRF token
 without an extra round-trip.
