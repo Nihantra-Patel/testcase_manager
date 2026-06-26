@@ -38,7 +38,7 @@ jspm_packages/
 
 # Generated frontend build output (built in CI / via `bench build`)
 testcase_manager/public/frontend/
-testcase_manager/www/testcase_manager.html
+testcase_manager/www/testcase-manager.html
 
 # IDEs and editors
 .vscode/

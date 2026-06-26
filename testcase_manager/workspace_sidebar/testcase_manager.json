@@ -56,10 +56,10 @@
    "open_in_new_tab": 1,
    "show_arrow": 0,
    "type": "Link",
-   "url": "/testcase_manager"
+   "url": "/testcase-manager"
   }
  ],
- "modified": "2026-06-08 11:56:57.145078",
+ "modified": "2026-06-26 15:43:57.000000",
  "modified_by": "Administrator",
  "module": "Testcase Manager",
  "name": "Testcase Manager",

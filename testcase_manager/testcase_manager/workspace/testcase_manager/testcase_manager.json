@@ -15,7 +15,7 @@
  "label": "Testcase Manager",
  "link_type": "",
  "links": [],
- "modified": "2026-06-08 11:58:51.447353",
+ "modified": "2026-06-26 15:43:57.000000",
  "modified_by": "Administrator",
  "module": "Testcase Manager",
  "name": "Testcase Manager",
@@ -49,7 +49,7 @@
    "doc_view": "List",
    "label": "Testcase Manager",
    "type": "URL",
-   "url": "/testcase_manager"
+   "url": "/testcase-manager"
   },
   {
    "color": "Grey",

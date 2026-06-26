@@ -9,8 +9,8 @@ export default defineConfig({
       // Drives: dev proxy, SPA route rule target, build outDir
       // (../testcase_manager/public/frontend), baseUrl
       // (/assets/testcase_manager/frontend/) and copies the built index.html
-      // to ../testcase_manager/www/testcase_manager.html
-      frontendRoute: '/testcase_manager',
+      // to ../testcase_manager/www/testcase-manager.html
+      frontendRoute: '/testcase-manager',
       frappeProxy: true,
       lucideIcons: true,
       jinjaBootData: true,

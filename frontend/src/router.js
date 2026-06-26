@@ -25,8 +25,8 @@ const routes = [
 ]
 
 const router = createRouter({
-  // Served under /testcase_manager (see website_route_rules in hooks.py).
-  history: createWebHistory('/testcase_manager'),
+  // Served under /testcase-manager (see website_route_rules in hooks.py).
+  history: createWebHistory('/testcase-manager'),
   routes,
 })
 
