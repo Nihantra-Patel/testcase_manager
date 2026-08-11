@@ -280,7 +280,7 @@ def _app_source_fingerprint(app: str) -> str:
 			except OSError:
 				continue
 	parts.sort()
-	return hashlib.sha1("\n".join(parts).encode("utf-8")).hexdigest()
+	return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
 
 
 def _get_import_graph(app: str) -> dict[str, set[str]]:
@@ -384,6 +384,155 @@ def _reaching_paths(
 	return {m: p for m, p in paths.items() if m not in targets}
 
 
+def _build_call_graph(app: str) -> dict[str, set[str]]:
+	"""Map every method/function NAME → the method names it calls, app-wide.
+
+	Coarser than a true call graph (name-matched, not type-resolved — the same
+	practical limit as any call graph built without executing the code), but it
+	catches the case the import graph structurally cannot: two functions in the
+	SAME file, or in files that don't import each other, where one calls the
+	other directly (e.g. a doctype's ``on_submit`` calling a shared helper in the
+	same module). The import graph only sees file-to-file edges; a lot of real
+	Frappe coupling is method-to-method within or across files that already
+	import each other for unrelated reasons, so it under- and over-selects at
+	the file grain in different ways than this misses at the name grain.
+	"""
+	app_path = _app_path(app)
+	pkg_root = os.path.join(app_path, app)
+	# name -> set of names it calls (bodies may call the same short name that's
+	# defined in several classes/files — we accept that ambiguity here and let
+	# the caller decide how to use it, same tradeoff as the import graph keeping
+	# module-level rather than symbol-level edges).
+	calls: dict[str, set[str]] = {}
+
+	for dirpath, _dirs, files in os.walk(pkg_root):
+		if "node_modules" in dirpath or "/.git" in dirpath or "__pycache__" in dirpath:
+			continue
+		for fname in files:
+			if not fname.endswith(".py"):
+				continue
+			abs_path = os.path.join(dirpath, fname)
+			try:
+				with open(abs_path, encoding="utf-8") as fh:
+					tree = ast.parse(fh.read(), filename=abs_path)
+			except Exception:
+				continue
+
+			class _Visitor(ast.NodeVisitor):
+				def __init__(self):
+					self.func_stack: list[str] = []
+
+				def visit_FunctionDef(self, node):
+					self._visit_func(node)
+
+				def visit_AsyncFunctionDef(self, node):
+					self._visit_func(node)
+
+				def _visit_func(self, node):
+					self.func_stack.append(node.name)
+					calls.setdefault(node.name, set())
+					self.generic_visit(node)
+					self.func_stack.pop()
+
+				def visit_Call(self, node):
+					if self.func_stack:
+						called = None
+						if isinstance(node.func, ast.Attribute):
+							called = node.func.attr
+						elif isinstance(node.func, ast.Name):
+							called = node.func.id
+						if called:
+							calls[self.func_stack[-1]].add(called)
+					self.generic_visit(node)
+
+			_Visitor().visit(tree)
+
+	return calls
+
+
+def _get_call_graph(app: str) -> dict[str, set[str]]:
+	"""Method-name call graph for *app*, cached the same way as the import graph.
+
+	Same fingerprint key as ``_get_import_graph`` (source paths+mtimes+sizes), so
+	both graphs invalidate together on any .py edit — no separate cache to go
+	stale independently.
+	"""
+	fingerprint = _app_source_fingerprint(app)
+	cache_key = f"testcase_manager:call_graph:{app}:{fingerprint}"
+	cache = frappe.cache()
+
+	cached = cache.get_value(cache_key)
+	if cached is not None:
+		return {name: set(callees) for name, callees in cached.items()}
+
+	graph = _build_call_graph(app)
+	cache.set_value(
+		cache_key, {name: sorted(callees) for name, callees in graph.items()}, expires_in_sec=3600
+	)
+	return graph
+
+
+def _changed_method_names(app_path: str, rel_path: str, base: str) -> set[str]:
+	"""Names of top-level functions/methods whose body overlaps the diff for *rel_path*.
+
+	Reuses the same line-range diff as the test-method narrowing (Rule 1), but
+	applied to a production file instead of a test file, and without the
+	test_-prefix filter — any changed method name is a candidate call-graph seed.
+	"""
+	abs_path = os.path.join(app_path, rel_path)
+	ranges = _changed_line_ranges(app_path, rel_path, base)
+	if not ranges:
+		return set()
+
+	try:
+		with open(abs_path, encoding="utf-8") as fh:
+			tree = ast.parse(fh.read(), filename=abs_path)
+	except Exception:
+		return set()
+
+	def _overlaps(lo: int, hi: int) -> bool:
+		return any(not (hi < s or lo > e) for s, e in ranges)
+
+	names: set[str] = set()
+	for node in ast.walk(tree):
+		if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+			lo = node.lineno
+			hi = getattr(node, "end_lineno", lo)
+			if _overlaps(lo, hi):
+				names.add(node.name)
+	return names
+
+
+def _names_reaching(
+	graph: dict[str, set[str]], targets: set[str], max_depth: int = 2
+) -> dict[str, list[str]]:
+	"""Method names that (transitively, within max_depth) call any name in *targets*.
+
+	Same reverse-BFS shape as ``_reaching_paths`` for the import graph, but over
+	method names instead of modules. Returns ``{caller_name: [caller, …, target]}``
+	so the reason string can show the call chain, mirroring the import-graph UX.
+	"""
+	reverse: dict[str, set[str]] = {}
+	for name, callees in graph.items():
+		for callee in callees:
+			reverse.setdefault(callee, set()).add(name)
+
+	paths: dict[str, list[str]] = {t: [t] for t in targets}
+	frontier = set(targets)
+	for _ in range(max(1, max_depth)):
+		nxt: set[str] = set()
+		for t in frontier:
+			for caller in reverse.get(t, ()):
+				if caller not in paths:
+					paths[caller] = [caller, *paths[t]]
+					nxt.add(caller)
+		if not nxt:
+			break
+		frontier = nxt
+
+	return {name: p for name, p in paths.items() if name not in targets}
+
+
 @frappe.whitelist()
 def analyze(app: str, base: str | None = None, depth: int = 2) -> dict:
 	"""Testcases affected by the app's current branch changes (no tests run).
@@ -479,6 +628,20 @@ def analyze(app: str, base: str | None = None, depth: int = 2) -> dict:
 	paths_by_module = _reaching_paths(graph, changed_modules, max_depth=max_depth)
 	impacted_modules = set(paths_by_module)
 
+	# Method-level call graph: names of methods changed in non-test production
+	# files, then which method NAMES transitively call one of them. This is the
+	# grain the import graph structurally can't see — two methods in the same
+	# file, or in files unrelated by import, connected by a direct call.
+	changed_method_names: set[str] = set()
+	for rel in changed:
+		fname = rel.split("/")[-1]
+		if fname.startswith("test_") or not fname.endswith(".py"):
+			continue
+		changed_method_names |= _changed_method_names(app_path, rel, resolved_base)
+
+	call_graph = _get_call_graph(app)
+	call_paths_by_name = _names_reaching(call_graph, changed_method_names, max_depth=max_depth)
+
 	for t in tests:
 		test_mod = t.get("python_path") or ""
 
@@ -521,6 +684,18 @@ def analyze(app: str, base: str | None = None, depth: int = 2) -> dict:
 		# 4) The test targets a changed doctype.
 		if t.get("reference_doctype") and t["reference_doctype"] in changed_doctypes:
 			_mark(t, f"Targets changed doctype: {t['reference_doctype']}")
+
+		# 5) The test method itself (by name) transitively calls a changed method.
+		#    Catches same-file and cross-file method coupling the import graph
+		#    can't see, e.g. LoanRepayment.validate calling calculate_amounts in
+		#    the same module. Name-matched, so a common name (validate, on_submit)
+		#    can over-select — same tradeoff as the rest of this module, and why
+		#    the reason string always shows the call chain rather than asserting.
+		test_method_name = t.get("test_method")
+		if test_method_name and test_method_name in call_paths_by_name:
+			path = call_paths_by_name[test_method_name]
+			reason = f"Calls changed method via: {' → '.join(path)}"
+			_mark(t, reason, path)
 
 	rows = sorted(affected.values(), key=lambda r: r["test_method"] or r["name"])
 	return {
